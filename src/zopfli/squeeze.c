@@ -35,7 +35,7 @@ Author: jyrki.alakuijala@gmail.com (Jyrki Alakuijala)
 #include "util.h"
 #include "squeeze.h"
 #include "match.h"
-#include "../LzFind.h"
+#include "LzFind.h"
 #include "../threadLocal.h"
 
 static void CopyStats(const SymbolStats* source, SymbolStats* dest) {

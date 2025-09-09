@@ -10,6 +10,7 @@ add_library(zopfli
 	util.c
 	zlib_container.c
 	zopfli_gzip.cpp
+	LzFind.c
 	
 	blocksplitter.h
 	deflate.h
@@ -19,7 +20,8 @@ add_library(zopfli
 	squeeze.h
 	util.h
 	zlib_container.h
-	zopfli.h)
+	zopfli.h
+	LzFind.h)
 
 add_library(zopfli::zopfli ALIAS zopfli)
 

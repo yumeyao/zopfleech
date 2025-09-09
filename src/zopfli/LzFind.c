@@ -6,8 +6,8 @@
 #include <stdlib.h>
 
 #include "LzFind.h"
-#include "zopfli/util.h"
-#include "zopfli/match.h"
+#include "util.h"
+#include "match.h"
 
 void MatchFinder_Free(CMatchFinder *p)
 {

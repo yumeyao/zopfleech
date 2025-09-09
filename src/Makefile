@@ -24,7 +24,7 @@ all: deps bin
 
 bin: deps
 	$(CC) -c $(UCFLAGS) optipng/image.c zopfli/util.c zopfli/squeeze.c zopfli/lz77.c \
-	zopfli/blocksplitter.c optipng/opngreduc/opngreduc.c LzFind.c miniz/miniz.c mozjpeg/transupp.c
+	zopfli/blocksplitter.c optipng/opngreduc/opngreduc.c zopfli/LzFind.c miniz/miniz.c mozjpeg/transupp.c
 	$(CXX) $(UCXXFLAGS) main.cpp libz.a $(OBJECTS) $(CXXSRC) mozjpeg/libjpeg.a libpng/libpng.a -o ${BINPREFIX}/ect $(LDFLAGS)
 clean:
 	rm -f *.o *.a zlib/*.o libpng/*.o libpng/*.a libpng/pngusr.h libpng/pnglibconf.h

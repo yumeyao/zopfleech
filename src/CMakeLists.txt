@@ -20,12 +20,10 @@ add_executable(ect
 	main.cpp
 	gztools.cpp
 	jpegtran.cpp
-	LzFind.c
 	support.cpp
 	zopflipng.cpp
 	# Add headers so they get added to things like Xcode projects
 	gztools.h
-	LzFind.h
 	main.h
 	pngusr.h
 	support.h
