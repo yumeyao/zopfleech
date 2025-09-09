@@ -26,6 +26,8 @@ add_executable(ect
 
 add_executable(ect::ect ALIAS ect)
 
+add_executable(zopgz zopgz.c)
+
 if(MINGW)
 	add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-mno-ms-bitfields>)
 	add_compile_options($<$<COMPILE_LANGUAGE:C>:-mno-ms-bitfields>)
@@ -119,6 +121,10 @@ add_subdirectory(zopfli EXCLUDE_FROM_ALL)
 set(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT FALSE)
 
 target_link_libraries(ect
+	zopfli::zopfli
+	ZLIB::ZLIB)
+
+target_link_libraries(zopgz
 	zopfli::zopfli
 	ZLIB::ZLIB)
 
