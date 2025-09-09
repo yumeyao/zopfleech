@@ -5,29 +5,13 @@
  *      <...link against ECT objects/libs that provide ZopfliGzip...>
  *
  * Usage:
- *   zopgz [options] input_file [output_file]
- *   zopgz [options]                # read from stdin, write to stdout
- *
- * Options:
- *   -1 .. -9           set compression level (maps to Zopfli mode)
- *   -n, --no-name      omit filename in gzip header
- *   -N, --name         store input filename in gzip header
- *   -N <name>          store <name> in gzip header
- *   --name=<name>      store <name> in gzip header
- *   -f, --force        allow writing gzip output to a terminal (stdout)
- *   -h, --help         show help
- *
- * Notes:
- *   - This is a compressor (not an optimizer). It always writes a new .gz.
- *   - When no input_file is given, it reads from stdin and writes to stdout.
- *   - In stdin mode, we pass "" for both input and output filenames to ZopfliGzip().
- *   - On Windows, stdin/stdout are switched to binary mode in stdin mode.
+ *   zopgz [options] [files...]
+ *   (files are compressed in-place with suffix; no input files -> stdin)
  */
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <errno.h>
 
 #if defined(_WIN32)
 #  include <io.h>
@@ -43,39 +27,34 @@
 /* --- Forward declaration. ----------------------- */
 extern int ZopfliGzip(const char* infilename, const char* outfilename, unsigned mode, const char* gzip_name, unsigned time);
 
-/* --- Globals (simple CLI style) ----------------------------------------- */
-static unsigned g_level = 9;         /* default level */
-static int      g_store_name = 0;    /* 0 = omit; 1 = store */
-static const char* g_name_override = NULL;
-static const char* g_input_path = NULL;
-static const char* g_output_path = NULL;
-static int      g_force_terminal = 0;/* allow writing to terminal */
+/* Globals */
+static unsigned g_level = 9;
+static int g_store_name = 0;
+static int g_store_time = 0; /* mirrors g_store_name */
+static int g_force_terminal = 0;
+static int g_quiet = 0;
+static int g_write_stdout = 0;
+static const char* g_suffix = ".gz";
+static int g_use_stdin = 1;
 
-/* --- Helpers ------------------------------------------------------------- */
-
-static void die(const char* msg) {
-    fprintf(stderr, "zopgz: %s\n", msg);
-    exit(2);
-}
-
+/* Helpers */
 static void usage(FILE* out) {
     fprintf(out,
         "Usage:\n"
-        "  zopgz [options] input_file [output_file]\n"
-        "  zopgz [options]                # read from stdin, write to stdout\n"
+        "  zopgz [options] [files...]\n"
+        "  (files are compressed in-place with suffix; no input files -> stdin)\n"
         "\n"
-        "Options:\n"
+        "Mandatory arguments to long options are mandatory for short options too.\n"
+        "\n"
         "  -1 .. -9           set compression level (maps to Zopfli mode)\n"
-        "  -n, --no-name      omit filename in gzip header\n"
-        "  -N, --name         store input filename in gzip header\n"
-        "  -N <name>          store <name> in gzip header\n"
-        "  --name=<name>      store <name> in gzip header\n"
+        "  --fast, --best     alias to -1 and -9. discouraged to use though\n"
+        "  -n, --no-name      omit filename (and mtime) in gzip header\n"
+        "  -N, --name         store input filename (and mtime) in gzip header\n"
+        "  -S, --suffix=SUF   set output suffix when auto-naming (default .gz)\n"
+        "  -c, --stdout       write to stdout (for all inputs)\n"
         "  -f, --force        allow writing gzip output to a terminal (stdout)\n"
+        "  -q, --quiet        suppress warnings\n"
         "  -h, --help         show this help\n"
-        "\n"
-        "Notes:\n"
-        "  - Compressor only (not an optimizer). Always produces a new .gz.\n"
-        "  - No explicit pipe flags needed: omit input_file to read stdin and write stdout.\n"
     );
 }
 
@@ -89,168 +68,151 @@ static const char* path_basename(const char* p) {
     return slash ? (slash + 1) : p;
 }
 
-static char* make_default_out(const char* in) {
+static char* make_default_out_with_suffix(const char* in, const char* suffix) {
     size_t n = strlen(in);
-    const char* suffix = ".gz";
-    size_t m = n + strlen(suffix) + 1;
-    char* out = (char*)malloc(m);
+    size_t s = strlen(suffix ? suffix : "");
+    char* out = (char*)malloc(n + s + 1);
     if (!out) return NULL;
     memcpy(out, in, n);
-    memcpy(out + n, suffix, strlen(suffix) + 1);
+    memcpy(out + n, suffix, s + 1);
     return out;
 }
 
-/* Parse -N value from either "-N name" or "--name=name" */
-static int parse_name_option(int argc, char** argv, int i) {
-    const char* a = argv[i];
-
-    if (strcmp(a, "-N") == 0 || strcmp(a, "--name") == 0) {
-        g_store_name = 1;
-        /* If next is present and not an option, treat as explicit name */
-        if (i + 1 < argc && argv[i + 1][0] != '-') {
-            g_name_override = argv[i + 1];
-            return 2; /* consumed current and next */
-        }
-        return 1; /* consumed only current */
-    }
-
-    if (strncmp(a, "--name=", 7) == 0) {
-        g_store_name = 1;
-        g_name_override = a + 7;
-        return 1;
-    }
-
-    return 0; /* not a name option */
-}
-
 static void parse_args(int argc, char** argv) {
-    int i = 1;
-    for (; i < argc; ++i) {
+    for (int i = 1; i < argc; ++i) {
         const char* a = argv[i];
 
         if (a[0] != '-') {
-            /* first non-option = input; second non-option = output */
-            if (!g_input_path) {
-                g_input_path = a;
-            } else if (!g_output_path) {
-                g_output_path = a;
-            } else {
-                die("too many positional arguments");
-            }
+            g_use_stdin = 0; /* remember that we saw at least one filename */
             continue;
         }
 
         /* long options */
-        if (strcmp(a, "--help") == 0) {
-            usage(stdout);
-            exit(0);
-        }
-        if (strcmp(a, "--no-name") == 0) {
-            g_store_name = 0;
-            continue;
-        }
-        if (strcmp(a, "--force") == 0) {
-            g_force_terminal = 1;
-            continue;
-        }
-        if (strncmp(a, "--name", 6) == 0) {
-            int consumed = parse_name_option(argc, argv, i);
-            if (!consumed) die("invalid --name option");
-            i += (consumed - 1);
-            continue;
+        if (strcmp(a, "--help") == 0) { usage(stdout); exit(0); }
+        if (strcmp(a, "--force") == 0) { g_force_terminal = 1; continue; }
+        if (strcmp(a, "--quiet") == 0) { g_quiet = 1; continue; }
+        if (strcmp(a, "--stdout") == 0) { g_write_stdout = 1; continue; }
+        if (strcmp(a, "--fast") == 0) { g_level = 1; continue; }
+        if (strcmp(a, "--best") == 0) { g_level = 9; continue; }
+        if (strcmp(a, "--no-name") == 0) { g_store_name = 0; g_store_time = 0; continue; }
+        if (strcmp(a, "--name") == 0) { g_store_name = 1; g_store_time = 1; continue; }
+        if (strncmp(a, "--suffix", 8) == 0) {
+            if (a[8] == '=' && a[9] != '\0') { g_suffix = a + 9; continue; }
+            if (a[8] == '=' || a[8] == '\0') {
+                fprintf(stderr, "zopgz: --suffix requires a value, use --suffix=SUF\n");
+                exit(2);
+            }
+            /* fallthrough to unknown option */
         }
 
-        /* short options & levels */
-        if (strcmp(a, "-h") == 0) {
-            usage(stdout);
-            exit(0);
-        }
-        if (strcmp(a, "-n") == 0) {
-            g_store_name = 0;
-            continue;
-        }
-        if (strcmp(a, "-f") == 0) {
-            g_force_terminal = 1;
-            continue;
-        }
-        if (a[0] == '-' && a[1] >= '1' && a[1] <= '9' && a[2] == '\0') {
-            g_level = (unsigned)(a[1] - '0');
-            continue;
-        }
-        if (strcmp(a, "-N") == 0) {
-            int consumed = parse_name_option(argc, argv, i);
-            i += (consumed - 1);
-            continue;
+        if (a[1] == '-' || a[1] == '\0') {
+            fprintf(stderr, "zopgz: unknown option: %s\n", a);
+            usage(stderr);
+            exit(2);
         }
 
-        /* Unknown option */
-        fprintf(stderr, "zopgz: unknown option: %s\n", a);
-        usage(stderr);
-        exit(2);
+        /* short options / clusters */
+        for (int j = 1; a[j] != '\0'; ++j) {
+            char c = a[j];
+            if (c >= '1' && c <= '9') { g_level = (unsigned)(c - '0'); continue; }
+            switch (c) {
+                case 'h': usage(stdout); exit(0);
+                case 'f': g_force_terminal = 1; break;
+                case 'q': g_quiet = 1; break;
+                case 'c': g_write_stdout = 1; break;
+                case 'n': g_store_name = 0; g_store_time = 0; break;
+                case 'N': g_store_name = 1; g_store_time = 1; break;
+                case 'S': {
+                    /* value can be inline: -Sfoo, or next argv */
+                    const char* val = NULL;
+                    if (a[j+1] != '\0') { val = &a[j+1]; j = (int)strlen(a) - 1; }
+                    else {
+                        if (i + 1 >= argc) {
+                            fprintf(stderr, "zopgz: -S requires a suffix value\n");
+                            exit(2);
+                        }
+                        val = argv[++i];
+                    }
+                    g_suffix = val;
+                    break;
+                }
+                default:
+                    fprintf(stderr, "zopgz: unknown option: -%c\n", c);
+                    usage(stderr);
+                    exit(2);
+            }
+        }
     }
 
-    /* If stdin mode (no input path), user must not provide an output filename. */
-    if (!g_input_path && g_output_path) {
-        die("when reading from stdin, do not specify output_file (writes to stdout)");
-    }
-
-    if (g_input_path && !g_output_path) {
-        char* def = make_default_out(g_input_path);
-        if (!def) die("out of memory");
-        g_output_path = def; /* freed at process end by OS */
-    }
+    /* at the end, set g_write_stdout to 1 if use stdin */
+    if (g_use_stdin) g_write_stdout = 1;
 }
 
-/* --- Main ---------------------------------------------------------------- */
+/* Compress one path (NULL => stdin) to file or stdout */
+static int compress_one(const char* inpath) {
+    /* gzip header filename only for file input with -N/--name */
+    const char* gzip_name = "";
+    if (g_store_name && inpath) {
+        gzip_name = path_basename(inpath);
+    }
+
+    /* determine outfilename */
+    char* outpath = NULL;
+    if (!g_write_stdout) {
+        outpath = make_default_out_with_suffix(inpath, g_suffix);
+        if (!outpath) {
+            fprintf(stderr, "zopgz: out of memory\n");
+            return 2;
+        }
+    }
+
+    int rc = ZopfliGzip(inpath, outpath, g_level, gzip_name, 0);
+
+    if (outpath) free(outpath);
+
+    if (rc != 0) {
+        fprintf(stderr, "zopgz: compression failed for %s (code %d)\n",
+                inpath ? inpath : "<stdin>", rc);
+    }
+    return rc;
+}
 
 int main(int argc, char** argv) {
+    /* Pass 1: options + presence of filenames */
     parse_args(argc, argv);
 
-    const int stdin_mode = (g_input_path == NULL);
-
-    /* If we will write to stdout (stdin mode), guard against terminal unless -f. */
-    if (stdin_mode && !g_force_terminal && ISATTY(FILENO(stdout))) {
+    if (g_write_stdout && !g_force_terminal && ISATTY(FILENO(stdout))) {
         fprintf(stderr,
-            "zopgz: refusing to write compressed data to a terminal.\n"
-            "       use -f to force, or redirect the output.\n\n");
+            "zopgz: refusing to write compressed data to a terminal\n"
+            "       use -f to force, or redirect the output\n\n");
         usage(stderr);
         return 2;
     }
 
 #if defined(_WIN32)
-    if (stdin_mode) {
-        _setmode(_fileno(stdin),  _O_BINARY);
-        _setmode(_fileno(stdout), _O_BINARY);
-    }
+    if (g_use_stdin) { _setmode(_fileno(stdin),  _O_BINARY); }
+    if (g_write_stdout) { _setmode(_fileno(stdout), _O_BINARY); }
 #endif
 
-    /* gzip header filename field */
-    const char* gzip_name = "";
-    if (g_store_name) {
-        if (stdin_mode) {
-            /* no natural basename in stdin mode; only use explicit override if provided */
-            gzip_name = (g_name_override && g_name_override[0]) ? g_name_override : "";
-        } else {
-            gzip_name = (g_name_override && g_name_override[0]) ? g_name_override
-                                                                : path_basename(g_input_path);
+    /* Pass 2: compress inputs (or stdin if none) */
+    if (g_use_stdin) {
+        /* stdin -> stdout */
+        int rc = compress_one(NULL);
+        return rc ? rc : 0;
+    }
+
+    int exit_rc = 0;
+    for (int i = 1; i < argc; ++i) {
+        const char* a = argv[i];
+        if (a[0] == '-') {
+            /* ignore options; special-handle -S to skip its value */
+            if (strcmp(a, "-S") == 0) {
+                if (i + 1 < argc) i++; /* skip suffix value */
+            }
+            continue;
         }
+        int rc = compress_one(a);
+        if (rc != 0) exit_rc = rc; /* continue with other files */
     }
-
-    /* Fixed per request */
-    unsigned multithreading = 0;
-    unsigned ZIP = 0;
-    unsigned char isGZ = 0; /* 0 = compress to gzip; 1 would mean optimize existing gzip */
-
-    /* Pass "" to indicate stdin/stdout when in stdin mode */
-    const char* infilename  = stdin_mode ? 0 : g_input_path;
-    const char* outfilename = stdin_mode ? 0 : g_output_path;
-
-    int rc = ZopfliGzip(infilename, outfilename, g_level, gzip_name, 0);
-
-    if (rc != 0) {
-        fprintf(stderr, "zopgz: compression failed (code %d)\n", rc);
-        return rc ? rc : 1;
-    }
-
-    return 0;
+    return exit_rc;
 }
