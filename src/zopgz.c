@@ -18,10 +18,12 @@
 #  include <fcntl.h>
 #  define ISATTY _isatty
 #  define FILENO _fileno
+#  include <windows.h>
 #else
 #  include <unistd.h>
 #  define ISATTY isatty
 #  define FILENO fileno
+#  include <sys/stat.h>
 #endif
 
 /* --- Forward declaration. ----------------------- */
@@ -35,7 +37,8 @@ static int g_force_terminal = 0;
 static int g_quiet = 0;
 static int g_write_stdout = 0;
 static const char* g_suffix = ".gz";
-static int g_use_stdin = 1;
+static int g_use_stdin = -1;
+static int g_keep_input = 0;
 
 /* Helpers */
 static void usage(FILE* out) {
@@ -47,11 +50,12 @@ static void usage(FILE* out) {
         "Mandatory arguments to long options are mandatory for short options too.\n"
         "\n"
         "  -1 .. -9           set compression level (maps to Zopfli mode)\n"
-        "  --fast, --best     alias to -1 and -9. discouraged to use though\n"
+        "  --fast, --best     aliases for -1 and -9 (discouraged)\n"
         "  -n, --no-name      omit filename (and mtime) in gzip header\n"
         "  -N, --name         store input filename (and mtime) in gzip header\n"
         "  -S, --suffix=SUF   set output suffix when auto-naming (default .gz)\n"
         "  -c, --stdout       write to stdout (for all inputs)\n"
+        "  -k, --keep         keep input files (default is to delete on success)\n"
         "  -f, --force        allow writing gzip output to a terminal (stdout)\n"
         "  -q, --quiet        suppress warnings\n"
         "  -h, --help         show this help\n"
@@ -79,11 +83,30 @@ static char* make_default_out_with_suffix(const char* in, const char* suffix) {
 }
 
 static void parse_args(int argc, char** argv) {
+    int end_of_opts = 0;
     for (int i = 1; i < argc; ++i) {
         const char* a = argv[i];
 
-        if (a[0] != '-') {
+        if (a[0] != '-' || end_of_opts) {
+            if (g_use_stdin == 1) {
+                fprintf(stderr, "zopgz: use exactly one '-' and no other files to read from stdin\n");
+                exit(2);
+            }
             g_use_stdin = 0; /* remember that we saw at least one filename */
+            continue;
+        }
+
+        if (a[1] == '\0') {
+            if (g_use_stdin != -1) {
+                fprintf(stderr, "zopgz: use exactly one '-' and no other files to read from stdin\n");
+                exit(2);
+            }
+            g_use_stdin = 1; /* remember that user forced stdin */
+            continue;
+        }
+
+        if (a[1] == '-' && a[2] == '\0') {
+            end_of_opts = 1; /* -- indicates end of args */
             continue;
         }
 
@@ -92,6 +115,7 @@ static void parse_args(int argc, char** argv) {
         if (strcmp(a, "--force") == 0) { g_force_terminal = 1; continue; }
         if (strcmp(a, "--quiet") == 0) { g_quiet = 1; continue; }
         if (strcmp(a, "--stdout") == 0) { g_write_stdout = 1; continue; }
+        if (strcmp(a, "--keep") == 0) { g_keep_input = 1; continue; }
         if (strcmp(a, "--fast") == 0) { g_level = 1; continue; }
         if (strcmp(a, "--best") == 0) { g_level = 9; continue; }
         if (strcmp(a, "--no-name") == 0) { g_store_name = 0; g_store_time = 0; continue; }
@@ -105,7 +129,7 @@ static void parse_args(int argc, char** argv) {
             /* fallthrough to unknown option */
         }
 
-        if (a[1] == '-' || a[1] == '\0') {
+        if (a[1] == '-') {
             fprintf(stderr, "zopgz: unknown option: %s\n", a);
             usage(stderr);
             exit(2);
@@ -120,20 +144,17 @@ static void parse_args(int argc, char** argv) {
                 case 'f': g_force_terminal = 1; break;
                 case 'q': g_quiet = 1; break;
                 case 'c': g_write_stdout = 1; break;
+                case 'k': g_keep_input = 1; break;
                 case 'n': g_store_name = 0; g_store_time = 0; break;
                 case 'N': g_store_name = 1; g_store_time = 1; break;
                 case 'S': {
-                    /* value can be inline: -Sfoo, or next argv */
-                    const char* val = NULL;
-                    if (a[j+1] != '\0') { val = &a[j+1]; j = (int)strlen(a) - 1; }
-                    else {
-                        if (i + 1 >= argc) {
-                            fprintf(stderr, "zopgz: -S requires a suffix value\n");
-                            exit(2);
-                        }
-                        val = argv[++i];
+                    const char* val = (a[j+1] ? &a[j+1] : (i+1<argc ? argv[++i] : NULL));
+                    if (!val || *val == '\0') {
+                        fprintf(stderr, "zopgz: -S requires a non-empty suffix\n");
+                        exit(2);
                     }
                     g_suffix = val;
+                    j = (int)strlen(a) - 1; /* if inline */
                     break;
                 }
                 default:
@@ -148,8 +169,28 @@ static void parse_args(int argc, char** argv) {
     if (g_use_stdin) g_write_stdout = 1;
 }
 
+static int is_symlink_path(const char* path) {
+    if (!path) return 0;
+#if defined(_WIN32)
+    /* Best-effort: treat any reparse point as “symlink-like” and skip. */
+    DWORD attr = GetFileAttributesA(path);
+    if (attr == INVALID_FILE_ATTRIBUTES) return 0;
+    return (attr & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+#else
+    struct stat st;
+    if (lstat(path, &st) != 0) return 0;
+    return S_ISLNK(st.st_mode);
+#endif
+}
+
 /* Compress one path (NULL => stdin) to file or stdout */
 static int compress_one(const char* inpath) {
+    /* Skip symbolic links (do not follow), like gzip */
+    if (inpath && is_symlink_path(inpath)) {
+        if (!g_quiet) fprintf(stderr, "zopgz: %s is a symbolic link -- skipping\n", inpath);
+        return 0; /* not an error */
+    }
+
     /* gzip header filename only for file input with -N/--name */
     const char* gzip_name = "";
     if (g_store_name && inpath) {
@@ -170,7 +211,14 @@ static int compress_one(const char* inpath) {
 
     if (outpath) free(outpath);
 
-    if (rc != 0) {
+    if (rc == 0) {
+        /* delete input file if we created a file and user didn't request keep */
+        if (!g_write_stdout && inpath && !g_keep_input) {
+            if (remove(inpath) != 0) {
+                if (!g_quiet) fprintf(stderr, "zopgz: warning: could not remove '%s'\n", inpath);
+            }
+        }
+    } else {
         fprintf(stderr, "zopgz: compression failed for %s (code %d)\n",
                 inpath ? inpath : "<stdin>", rc);
     }
@@ -202,14 +250,18 @@ int main(int argc, char** argv) {
     }
 
     int exit_rc = 0;
+    int end_of_opts = 0;
     for (int i = 1; i < argc; ++i) {
         const char* a = argv[i];
-        if (a[0] == '-') {
-            /* ignore options; special-handle -S to skip its value */
-            if (strcmp(a, "-S") == 0) {
-                if (i + 1 < argc) i++; /* skip suffix value */
+        if (!end_of_opts) {
+            if (strcmp(a, "--") == 0) { end_of_opts = 1; continue; }
+            if (a[0] == '-') {
+                /* ignore options; special-handle -S to skip its value */
+                if (strcmp(a, "-S") == 0) {
+                    if (i + 1 < argc) i++; /* skip suffix value */
+                }
+                continue;
             }
-            continue;
         }
         int rc = compress_one(a);
         if (rc != 0) exit_rc = rc; /* continue with other files */
