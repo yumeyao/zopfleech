@@ -33,12 +33,13 @@ extern int ZopfliGzip(const char* infilename, const char* outfilename, unsigned 
 static unsigned g_level = 9;
 static int g_store_name = 0;
 static int g_store_time = 0; /* mirrors g_store_name */
-static int g_force_terminal = 0;
+static int g_force = 0;
 static int g_quiet = 0;
 static int g_write_stdout = 0;
 static const char* g_suffix = ".gz";
-static int g_use_stdin = -1;
+static int g_use_stdin = -1;  /* -1: undecided; 0: filenames; 1: stdin */
 static int g_keep_input = 0;
+static int g_recursive = 0;   /* parsed for compatibility; error after parsing */
 
 /* Helpers */
 static void usage(FILE* out) {
@@ -49,14 +50,14 @@ static void usage(FILE* out) {
         "\n"
         "Mandatory arguments to long options are mandatory for short options too.\n"
         "\n"
-        "  -1 .. -9           set compression level (maps to Zopfli mode)\n"
+        "  -1 .. -9           compression level, the higher the better but slower\n"
         "  --fast, --best     aliases for -1 and -9 (discouraged)\n"
         "  -n, --no-name      omit filename (and mtime) in gzip header\n"
         "  -N, --name         store input filename (and mtime) in gzip header\n"
         "  -S, --suffix=SUF   set output suffix when auto-naming (default .gz)\n"
         "  -c, --stdout       write to stdout (for all inputs)\n"
         "  -k, --keep         keep input files (default is to delete on success)\n"
-        "  -f, --force        allow writing gzip output to a terminal (stdout)\n"
+        "  -f, --force        force overwrite of output file and compress links\n"
         "  -q, --quiet        suppress warnings\n"
         "  -h, --help         show this help\n"
     );
@@ -92,7 +93,7 @@ static void parse_args(int argc, char** argv) {
                 fprintf(stderr, "zopgz: use exactly one '-' and no other files to read from stdin\n");
                 exit(2);
             }
-            g_use_stdin = 0; /* remember that we saw at least one filename */
+            g_use_stdin = 0; /* saw at least one filename */
             continue;
         }
 
@@ -101,7 +102,7 @@ static void parse_args(int argc, char** argv) {
                 fprintf(stderr, "zopgz: use exactly one '-' and no other files to read from stdin\n");
                 exit(2);
             }
-            g_use_stdin = 1; /* remember that user forced stdin */
+            g_use_stdin = 1; /* user forced stdin */
             continue;
         }
 
@@ -112,7 +113,7 @@ static void parse_args(int argc, char** argv) {
 
         /* long options */
         if (strcmp(a, "--help") == 0) { usage(stdout); exit(0); }
-        if (strcmp(a, "--force") == 0) { g_force_terminal = 1; continue; }
+        if (strcmp(a, "--force") == 0) { g_force = 1; continue; }
         if (strcmp(a, "--quiet") == 0) { g_quiet = 1; continue; }
         if (strcmp(a, "--stdout") == 0) { g_write_stdout = 1; continue; }
         if (strcmp(a, "--keep") == 0) { g_keep_input = 1; continue; }
@@ -120,6 +121,7 @@ static void parse_args(int argc, char** argv) {
         if (strcmp(a, "--best") == 0) { g_level = 9; continue; }
         if (strcmp(a, "--no-name") == 0) { g_store_name = 0; g_store_time = 0; continue; }
         if (strcmp(a, "--name") == 0) { g_store_name = 1; g_store_time = 1; continue; }
+        if (strcmp(a, "--recursive") == 0) { g_recursive = 1; continue; }
         if (strncmp(a, "--suffix", 8) == 0) {
             if (a[8] == '=' && a[9] != '\0') { g_suffix = a + 9; continue; }
             if (a[8] == '=' || a[8] == '\0') {
@@ -141,10 +143,11 @@ static void parse_args(int argc, char** argv) {
             if (c >= '1' && c <= '9') { g_level = (unsigned)(c - '0'); continue; }
             switch (c) {
                 case 'h': usage(stdout); exit(0);
-                case 'f': g_force_terminal = 1; break;
+                case 'f': g_force = 1; break;
                 case 'q': g_quiet = 1; break;
                 case 'c': g_write_stdout = 1; break;
                 case 'k': g_keep_input = 1; break;
+                case 'r': g_recursive = 1; break;
                 case 'n': g_store_name = 0; g_store_time = 0; break;
                 case 'N': g_store_name = 1; g_store_time = 1; break;
                 case 'S': {
@@ -167,28 +170,83 @@ static void parse_args(int argc, char** argv) {
 
     /* at the end, set g_write_stdout to 1 if use stdin */
     if (g_use_stdin) g_write_stdout = 1;
+    if (g_recursive) {
+        fprintf(stderr, "zopgz: recursive mode is not supported. consider: find DIR -type f -exec zopgz {} \\;\n");
+        exit(2);
+    }
 }
 
-static int is_symlink_path(const char* path) {
-    if (!path) return 0;
+static int file_exists(const char* path) {
+    if (!path || !*path) return 0;
 #if defined(_WIN32)
-    /* Best-effort: treat any reparse point as “symlink-like” and skip. */
     DWORD attr = GetFileAttributesA(path);
-    if (attr == INVALID_FILE_ATTRIBUTES) return 0;
-    return (attr & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+    return attr != INVALID_FILE_ATTRIBUTES;
 #else
     struct stat st;
-    if (lstat(path, &st) != 0) return 0;
-    return S_ISLNK(st.st_mode);
+    return stat(path, &st) == 0;
 #endif
+}
+
+/* Return 1 = yes, 0 = no. Reads one char from stdin (TTY) and drains rest of line. */
+static int prompt_yesno_overwrite(const char* outpath) {
+    fprintf(stderr, "zopgz: %s already exists; replace? (y/N) ", outpath);
+    fflush(stderr);
+    int ch = getchar();
+    int yes = (ch == 'y' || ch == 'Y');
+    while (ch != '\n' && ch != EOF) ch = getchar();
+    return yes;
+}
+
+/* 0 for regular files, 1 for symlink, 2 for directory, 3 for 1 + 2 */
+static int probe_path(const char* path, time_t* ptime) {
+    int ret = 0;
+#if defined(_WIN32)
+    /* Symlinks/junctions are reparse points; DIRECTORY bit often reflects target kind. */
+    WIN32_FILE_ATTRIBUTE_DATA fad;
+    if (!GetFileAttributesExA(path, GetFileExInfoStandard, &fad)) return 0;
+
+    DWORD attr = fad.dwFileAttributes;
+    if (attr & FILE_ATTRIBUTE_REPARSE_POINT) ret |= 1;
+    if (attr & FILE_ATTRIBUTE_DIRECTORY)     ret |= 2;
+
+    /* Convert FILETIME (100ns ticks since 1601-01-01) to time_t (seconds since 1970-01-01). */
+    ULONGLONG ft = ((ULONGLONG)fad.ftLastWriteTime.dwHighDateTime << 32) |
+                    (ULONGLONG)fad.ftLastWriteTime.dwLowDateTime;
+    const ULONGLONG TICKS_PER_SEC = 10000000ULL;
+    const ULONGLONG EPOCH_DIFF    = 11644473600ULL; /* seconds between 1601 and 1970 */
+    *ptime = (time_t)((ft / TICKS_PER_SEC) - EPOCH_DIFF);  /* auto wrap */
+#else
+    struct stat st;
+    if (lstat(path, &st) != 0) return ret;
+
+    if (S_ISLNK(st.st_mode)) {
+        ret |= 1;
+        /* Try to classify link target only if we can resolve it. */
+        if (stat(path, &st) == 0 && S_ISDIR(st.st_mode)) ret |= 2;
+    } else if (S_ISDIR(st.st_mode)) {
+        ret |= 2;
+    }
+    *ptime = st.st_mtime; /* auto wrap */
+#endif
+    return ret;
 }
 
 /* Compress one path (NULL => stdin) to file or stdout */
 static int compress_one(const char* inpath) {
-    /* Skip symbolic links (do not follow), like gzip */
-    if (inpath && is_symlink_path(inpath)) {
-        if (!g_quiet) fprintf(stderr, "zopgz: %s is a symbolic link -- skipping\n", inpath);
-        return 0; /* not an error */
+    int info;
+    time_t mtime = 0;
+    /* Skip symbolic links without -f */
+    if (inpath && (info = probe_path(inpath, &mtime))) {
+        if (info & 1 && !g_force) {
+            fprintf(stderr, "zopgz: %s is a symbolic link -- skipping\n", inpath);
+            return 1;
+        }
+        if (info & 2) {
+            if (!g_quiet) fprintf(stderr, "zopgz: %s is a %sdirectory -- ignored\n",
+                                  inpath, (info & 1) ? "symlink to " : "");
+            return 1;
+        }
+        /* else: -f and target is a file; proceed */
     }
 
     /* gzip header filename only for file input with -N/--name */
@@ -197,17 +255,33 @@ static int compress_one(const char* inpath) {
         gzip_name = path_basename(inpath);
     }
 
+    if (!g_store_time) mtime = 0;
+
     /* determine outfilename */
     char* outpath = NULL;
     if (!g_write_stdout) {
         outpath = make_default_out_with_suffix(inpath, g_suffix);
         if (!outpath) {
             fprintf(stderr, "zopgz: out of memory\n");
-            return 2;
+            return 3;
+        }
+        /* Overwrite policy: if exists and not forced, prompt (TTY) or refuse (non-tty). */
+        if (file_exists(outpath) && !g_force) {
+            if (ISATTY(FILENO(stdin))) {
+                if (!prompt_yesno_overwrite(outpath)) {
+                    if (!g_quiet) fprintf(stderr, "zopgz: not overwritten: %s\n", outpath);
+                    free(outpath);
+                    return 0; /* not an error */
+                }
+            } else {
+                fprintf(stderr, "zopgz: %s already exists; use -f to overwrite\n", outpath);
+                free(outpath);
+                return 1;
+            }
         }
     }
 
-    int rc = ZopfliGzip(inpath, outpath, g_level, gzip_name, 0);
+    int rc = ZopfliGzip(inpath, outpath, g_level, gzip_name, mtime);
 
     if (outpath) free(outpath);
 
@@ -229,7 +303,7 @@ int main(int argc, char** argv) {
     /* Pass 1: options + presence of filenames */
     parse_args(argc, argv);
 
-    if (g_write_stdout && !g_force_terminal && ISATTY(FILENO(stdout))) {
+    if (g_write_stdout && !g_force && ISATTY(FILENO(stdout))) {
         fprintf(stderr,
             "zopgz: refusing to write compressed data to a terminal\n"
             "       use -f to force, or redirect the output\n\n");
@@ -242,13 +316,13 @@ int main(int argc, char** argv) {
     if (g_write_stdout) { _setmode(_fileno(stdout), _O_BINARY); }
 #endif
 
-    /* Pass 2: compress inputs (or stdin if none) */
+    /* stdin -> stdout (no filenames or sole "-") */
     if (g_use_stdin) {
-        /* stdin -> stdout */
         int rc = compress_one(NULL);
         return rc ? rc : 0;
     }
 
+    /* compress file operands (non-recursive) */
     int exit_rc = 0;
     int end_of_opts = 0;
     for (int i = 1; i < argc; ++i) {
@@ -264,7 +338,7 @@ int main(int argc, char** argv) {
             }
         }
         int rc = compress_one(a);
-        if (rc != 0) exit_rc = rc; /* continue with other files */
+        if (rc > exit_rc) exit_rc = rc; /* continue with other files */
     }
     return exit_rc;
 }
