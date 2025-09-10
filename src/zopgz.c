@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #if defined(_WIN32)
 #  include <io.h>
@@ -24,6 +25,7 @@
 #  define ISATTY isatty
 #  define FILENO fileno
 #  include <sys/stat.h>
+#  include <utime.h>
 #endif
 
 /* --- Forward declaration. ----------------------- */
@@ -170,6 +172,7 @@ static void parse_args(int argc, char** argv) {
 
     /* at the end, set g_write_stdout to 1 if use stdin */
     if (g_use_stdin) g_write_stdout = 1;
+    if (g_write_stdout) g_store_name = g_store_time = 0;  /* gzip behavior */
     if (g_recursive) {
         fprintf(stderr, "zopgz: recursive mode is not supported. consider: find DIR -type f -exec zopgz {} \\;\n");
         exit(2);
@@ -197,46 +200,87 @@ static int prompt_yesno_overwrite(const char* outpath) {
     return yes;
 }
 
+#if defined(_WIN32)
+#define FILE_STAT WIN32_FILE_ATTRIBUTE_DATA
+static time_t mtime_from_stat(FILE_STAT* pstat) {
+    /* Convert FILETIME (100ns ticks since 1601-01-01) to time_t (seconds since 1970-01-01). */
+    ULONGLONG ft = ((ULONGLONG)pstat->ftLastWriteTime.dwHighDateTime << 32) |
+                    (ULONGLONG)pstat->ftLastWriteTime.dwLowDateTime;
+    const ULONGLONG TICKS_PER_SEC = 10000000ULL;
+    const ULONGLONG EPOCH_DIFF    = 11644473600ULL; /* seconds between 1601 and 1970 */
+    return (time_t)((ft / TICKS_PER_SEC) - EPOCH_DIFF);  /* auto wrap */
+}
+#else
+#define FILE_STAT struct stat
+#define mtime_from_stat(pstat) ((pstat)->st_mtime)
+#endif
+
+static int path_is_dir(const char* p) {
+#if defined(_WIN32)
+  DWORD a = GetFileAttributesA(p);
+  return (a != INVALID_FILE_ATTRIBUTES) && (a & FILE_ATTRIBUTE_DIRECTORY);
+#else
+  struct stat st; return (stat(p, &st) == 0) && S_ISDIR(st.st_mode);
+#endif
+}
+
 /* 0 for regular files, 1 for symlink, 2 for directory, 3 for 1 + 2 */
-static int probe_path(const char* path, time_t* ptime) {
+static int probe_path(const char* path, FILE_STAT* pstat) {
     int ret = 0;
 #if defined(_WIN32)
     /* Symlinks/junctions are reparse points; DIRECTORY bit often reflects target kind. */
-    WIN32_FILE_ATTRIBUTE_DATA fad;
-    if (!GetFileAttributesExA(path, GetFileExInfoStandard, &fad)) return 0;
+    if (!GetFileAttributesExA(path, GetFileExInfoStandard, pstat)) return 0;
 
-    DWORD attr = fad.dwFileAttributes;
+    DWORD attr = pstat->dwFileAttributes;
     if (attr & FILE_ATTRIBUTE_REPARSE_POINT) ret |= 1;
     if (attr & FILE_ATTRIBUTE_DIRECTORY)     ret |= 2;
-
-    /* Convert FILETIME (100ns ticks since 1601-01-01) to time_t (seconds since 1970-01-01). */
-    ULONGLONG ft = ((ULONGLONG)fad.ftLastWriteTime.dwHighDateTime << 32) |
-                    (ULONGLONG)fad.ftLastWriteTime.dwLowDateTime;
-    const ULONGLONG TICKS_PER_SEC = 10000000ULL;
-    const ULONGLONG EPOCH_DIFF    = 11644473600ULL; /* seconds between 1601 and 1970 */
-    *ptime = (time_t)((ft / TICKS_PER_SEC) - EPOCH_DIFF);  /* auto wrap */
 #else
-    struct stat st;
-    if (lstat(path, &st) != 0) return ret;
+    if (lstat(path, pstat) != 0) return ret;
 
-    if (S_ISLNK(st.st_mode)) {
+    if (S_ISLNK(pstat->st_mode)) {
         ret |= 1;
         /* Try to classify link target only if we can resolve it. */
-        if (stat(path, &st) == 0 && S_ISDIR(st.st_mode)) ret |= 2;
-    } else if (S_ISDIR(st.st_mode)) {
+        if (stat(path, pstat) == 0 && S_ISDIR(pstat->st_mode)) ret |= 2;
+    } else if (S_ISDIR(pstat->st_mode)) {
         ret |= 2;
     }
-    *ptime = st.st_mtime; /* auto wrap */
 #endif
     return ret;
+}
+
+/* Copy source mode (POSIX) and timestamps (all platforms) onto outpath. */
+static void copystat(const char* outpath, const FILE_STAT* src) {
+#if defined(_WIN32)
+    HANDLE h = CreateFileA(outpath,
+                           FILE_WRITE_ATTRIBUTES,
+                           FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                           NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (h != INVALID_HANDLE_VALUE) {
+        /* Mirror all three timestamps from source. */
+        SetFileTime(h, &src->ftCreationTime, &src->ftLastAccessTime, &src->ftLastWriteTime);
+        CloseHandle(h);
+    }
+    /* minimal chmod on Windows */
+    if (src->dwFileAttributes & FILE_ATTRIBUTE_READONLY) {
+        DWORD dst = GetFileAttributesA(outpath);
+        SetFileAttributesA(outpath, dst | FILE_ATTRIBUTE_READONLY);
+    }
+#else
+    chmod(outpath, src->st_mode & 07777);
+
+    struct utimbuf tb;
+    tb.actime  = src->st_atime;
+    tb.modtime = src->st_mtime;
+    utime(outpath, &tb);
+#endif
 }
 
 /* Compress one path (NULL => stdin) to file or stdout */
 static int compress_one(const char* inpath) {
     int info;
-    time_t mtime = 0;
+    FILE_STAT src_st;
     /* Skip symbolic links without -f */
-    if (inpath && (info = probe_path(inpath, &mtime))) {
+    if (inpath && (info = probe_path(inpath, &src_st))) {
         if (info & 1 && !g_force) {
             fprintf(stderr, "zopgz: %s is a symbolic link -- skipping\n", inpath);
             return 1;
@@ -249,13 +293,14 @@ static int compress_one(const char* inpath) {
         /* else: -f and target is a file; proceed */
     }
 
+    time_t mtime = 0;
+    if (inpath && g_store_time) mtime = mtime_from_stat(&src_st);
+
     /* gzip header filename only for file input with -N/--name */
     const char* gzip_name = "";
     if (g_store_name && inpath) {
         gzip_name = path_basename(inpath);
     }
-
-    if (!g_store_time) mtime = 0;
 
     /* determine outfilename */
     char* outpath = NULL;
@@ -266,29 +311,43 @@ static int compress_one(const char* inpath) {
             return 3;
         }
         /* Overwrite policy: if exists and not forced, prompt (TTY) or refuse (non-tty). */
-        if (file_exists(outpath) && !g_force) {
-            if (ISATTY(FILENO(stdin))) {
-                if (!prompt_yesno_overwrite(outpath)) {
-                    if (!g_quiet) fprintf(stderr, "zopgz: not overwritten: %s\n", outpath);
-                    free(outpath);
-                    return 0; /* not an error */
-                }
-            } else {
-                fprintf(stderr, "zopgz: %s already exists; use -f to overwrite\n", outpath);
+        if (file_exists(outpath)) {
+            if (path_is_dir(outpath)) {
+                fprintf(stderr, "zopgz: %s is a directory; cannot overwrite\n", outpath);
                 free(outpath);
                 return 1;
             }
+            if (!g_force) {
+                /* No -f: prompt on TTY, refuse otherwise */
+                if (ISATTY(FILENO(stdin))) {
+                    if (!prompt_yesno_overwrite(outpath)) {
+                        if (!g_quiet) fprintf(stderr, "zopgz: not overwritten: %s\n", outpath);
+                        free(outpath);
+                        return 1; /* non-zero like gzip */
+                    }
+                } else {
+                    fprintf(stderr, "zopgz: %s already exists; use -f to overwrite\n", outpath);
+                    free(outpath);
+                    return 1;
+                }
+            }
+#if defined(_WIN32)
+            DWORD a = GetFileAttributesA(outpath);
+            if (a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_READONLY)) {
+                SetFileAttributesA(outpath, a & ~FILE_ATTRIBUTE_READONLY);
+            }
+#endif
+            remove(outpath);
         }
     }
 
     int rc = ZopfliGzip(inpath, outpath, g_level, gzip_name, mtime);
 
-    if (outpath) free(outpath);
-
     if (rc == 0) {
         /* delete input file if we created a file and user didn't request keep */
-        if (!g_write_stdout && inpath && !g_keep_input) {
-            if (remove(inpath) != 0) {
+        if (!g_write_stdout && inpath) {
+            copystat(outpath, &src_st);
+            if (!g_keep_input && remove(inpath) != 0) {
                 if (!g_quiet) fprintf(stderr, "zopgz: warning: could not remove '%s'\n", inpath);
             }
         }
@@ -296,6 +355,8 @@ static int compress_one(const char* inpath) {
         fprintf(stderr, "zopgz: compression failed for %s (code %d)\n",
                 inpath ? inpath : "<stdin>", rc);
     }
+
+    if (outpath) free(outpath);
     return rc;
 }
 
