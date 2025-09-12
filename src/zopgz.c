@@ -12,6 +12,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#if defined(_WIN32)
+#ifndef strncasecmp
+#define strncasecmp strnicmp
+#endif
+#endif /* glibc, BSD (MacOS) already have it in string.h */
 #include <time.h>
 
 #if defined(_WIN32)
@@ -39,7 +44,11 @@ static int g_store_time = 0; /* mirrors g_store_name */
 static int g_force = 0;
 static int g_quiet = 0;
 static int g_write_stdout = 0;
-static const char* g_suffix = ".gz";
+/* scan backward on decompression if the user specified g_suffix is not present. */
+/* .taz .tgz first (index number is more obvious) for replacement with .tar instead of strip */
+#define known_suffixes_gz known_suffixes[6]
+static const char* known_suffixes[] = {".taz", ".tgz", "-z", "_z", "-gz", ".z", ".gz"};
+static const char* g_suffix = NULL;
 static size_t g_suffix_len = 0;
 static int g_use_stdin = -1;  /* -1: undecided; 0: filenames; 1: stdin */
 static int g_keep_input = 0;
@@ -81,7 +90,10 @@ static const char* path_basename(const char* p) {
 
 static char* make_joint_path(const char* path, size_t path_len, const char* suffix, size_t suffix_len) {
     char* out = (char*)malloc(path_len + suffix_len + 1);
-    if (!out) return NULL;
+    if (!out) {
+        fprintf(stderr, "zopgz: out of memory\n");
+        return NULL;
+    }
     memcpy(out, path, path_len);
     memcpy(out + path_len, suffix, suffix_len);
     out[path_len + suffix_len] = '\0';
@@ -184,7 +196,9 @@ static void parse_args(int argc, char** argv) {
     /* at the end, set g_write_stdout to 1 if use stdin */
     if (g_use_stdin) g_write_stdout = 1;
     if (g_write_stdout) g_store_name = g_store_time = 0;  /* gzip behavior */
-    g_suffix_len = strlen(g_suffix);
+    g_suffix_len = 3; /* unconditionally for .gz first */
+    if (g_suffix) g_suffix_len = strlen(g_suffix);
+    else if (!g_decompress) g_suffix = known_suffixes_gz; /* .gz */
     if (g_recursive) {
         fprintf(stderr, "zopgz: recursive mode is not supported. consider: find DIR -type f -exec zopgz {} \\;\n");
         exit(2);
@@ -323,33 +337,46 @@ static char* decide_outpath(const char* inpath, z_stream* strm, time_t* hdr_time
     const char* base_name = path_basename(inpath);
     size_t path_len = (size_t)(base_name - inpath);
     size_t base_len = 0;
+    int is_tgz = 0;
 
     if (g_store_name && hdr_name && *hdr_name) {
         const char* safe_name = path_basename(hdr_name);
         base_len = strlen(safe_name);
         if (base_name == inpath) {
-            outpath = hdr_name; /* takes the ownership so not safe_name here. */
             if (safe_name != hdr_name) memmove(hdr_name, safe_name, base_len + 1);
-        }
-        else {
+            outpath = hdr_name; /* takes the ownership after memmove. */
+            hdr_name = NULL;
+        } else {
             /* construct path/to/base_name with base_name replaced with hdr_name */
             base_name = safe_name;
         }
     } else {
-        size_t suffix_len = g_suffix_len;
         base_len = strlen(base_name);
-        if (base_len > suffix_len && memcmp(base_name + base_len - suffix_len, g_suffix, suffix_len) == 0) {
-            base_len = base_len - suffix_len;
-        } else {
-            fprintf(stderr, "zopgz: cannot derive output name for %s with suffix %s\n", inpath, g_suffix);
-            z_stream_cleanup(strm);
-            free(hdr_name);
-            return NULL;
-        }
+        size_t suffix_len = g_suffix_len;
+        const char** suffix = g_suffix ? &g_suffix : &known_suffixes_gz;
+        do {
+            if (base_len > suffix_len && strncasecmp(base_name + base_len - suffix_len, *suffix, suffix_len) == 0) {
+                if (!g_suffix && (suffix == &known_suffixes[0] || suffix == &known_suffixes[1])) {
+                    /* replace ".tgz" or ".taz" with ".tar" */
+                    path_len = path_len + base_len - 4;
+                    base_name = ".tar", base_len = 4;
+                } else {
+                    base_len = base_len - suffix_len;
+                }
+                goto found_suffix;
+            }
+        } while (!g_suffix && suffix-- != &known_suffixes[0] && (suffix_len = strlen(*suffix)));
+        if (g_suffix) fprintf(stderr, "zopgz: cannot derive output name for %s with suffix %s\n", inpath, g_suffix);
+        else fprintf(stderr, "zopgz: unknown suffix of %s for decompression\n", inpath);
+        z_stream_cleanup(strm);
+        goto fail;
     }
-    if (!outpath) outpath = make_joint_path(inpath, path_len, base_name, base_len);
-    if (outpath != hdr_name) free(hdr_name); /* otherwise outpath has taken the ownership. */
-
+    if (!outpath) {
+found_suffix:
+        outpath = make_joint_path(inpath, path_len, base_name, base_len);
+    }
+fail:
+    if (hdr_name) free(hdr_name);
     return outpath;
 }
 
@@ -389,7 +416,6 @@ static int process_one(const char* inpath) {
         if (!g_write_stdout) {
             outpath = decide_outpath(inpath, ctx.strm, &mtime);
             /* decide_outpath() already printed an error and cleaned up on header failure */
-            if (!outpath) goto fail;
         }
     } else {
         if (inpath && g_store_time) mtime = mtime_from_stat(&src_st);
@@ -397,10 +423,10 @@ static int process_one(const char* inpath) {
 
         if (!g_write_stdout) {
             outpath = make_outname_with_suffix(inpath, g_suffix);
-            if (!outpath) { fprintf(stderr, "zopgz: out of memory\n"); return 3; }
         }
     }
 
+    if (!g_write_stdout && !outpath) goto fail;
     if (!g_write_stdout && prepare_out_for_write(outpath)) goto fail;
 
     if (g_decompress) {
