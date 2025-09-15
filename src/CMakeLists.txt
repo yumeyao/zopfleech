@@ -26,7 +26,7 @@ add_executable(ect
 
 add_executable(ect::ect ALIAS ect)
 
-add_executable(zopgz zopgz.c)
+add_executable(zopgz zopgz.c ungzlib.c)
 
 if(MINGW)
 	add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-mno-ms-bitfields>)
