@@ -4,7 +4,7 @@ project(zopfli LANGUAGES C CXX)
 add_library(zopfli
 	blocksplitter.c
 	deflate.cpp
-	katajainen.cpp
+	katajainen.c
 	lz77.c
 	squeeze.c
 	util.c

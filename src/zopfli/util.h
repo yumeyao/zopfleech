@@ -27,11 +27,55 @@ basic deflate specification values and generic program options.
 #ifndef ZOPFLI_UTIL_H_
 #define ZOPFLI_UTIL_H_
 
+#include <stdlib.h>
+#if defined(_MSC_VER) && !defined(__clang__)
+#include <intrin.h>
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#include <stdlib.h>
+#if defined(__GNUC__)
+#define ZOPFLI_INLINE    __attribute__((__always_inline__)) inline
+#define ZOPFLI_NOINLINE  __attribute__((__noinline__)) inline
+#elif defined(_MSC_VER)
+#define ZOPFLI_INLINE    __forceinline
+#define ZOPFLI_NOINLINE  __noinline
+#else /* let clang pick the compiler it pretends to be from above */
+#define ZOPFLI_INLINE
+#define ZOPFLI_NOINLINE
+#endif
+
+static ZOPFLI_INLINE unsigned floor_log2(unsigned n) {
+#if defined(__GNUC__) || defined(__clang__)
+  return (sizeof(unsigned) * 8 - 1) - __builtin_clz(n);
+#elif defined(_MSC_VER)
+  unsigned long index;
+  _BitScanReverse(&index, n);
+  return index;
+#else
+  unsigned index = 0;
+  while (n >>= 1) index++;
+  return index;
+#endif
+}
+
+static ZOPFLI_INLINE unsigned floor_log2_sz(size_t n) {
+  if (sizeof(size_t) == 4) return floor_log2(n);
+#if defined(_WIN64) || defined(__LP64__) || defined(__aarch64__) || defined(__ppc64__)
+#if defined(__GNUC__) || defined(__clang__)
+  return (sizeof(size_t) * 8 - 1) - __builtin_clzll(n);
+#elif defined(_MSC_VER)
+  unsigned long index;
+  _BitScanReverse64(&index, n);
+  return index;
+#endif
+#endif
+  unsigned index = 0;
+  while (n >>= 1) index++;
+  return index;
+}
 
 /* Minimum and maximum length that can be encoded in deflate. */
 #define ZOPFLI_MAX_MATCH 258

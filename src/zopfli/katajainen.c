@@ -30,7 +30,6 @@ Jyrki Katajainen, Alistair Moffat, Andrew Turpin".
 
 #include <stdlib.h>
 #include <assert.h>
-#include <algorithm>
 
 /*
 Nodes forming chains. Also used to represent leaves.
@@ -38,7 +37,7 @@ Nodes forming chains. Also used to represent leaves.
 typedef struct Node
 {
   size_t weight;  /* Total weight (symbol count) of this chain. */
-  Node* tail;  /* Previous node(s) of this chain, or 0 if none. */
+  struct Node* tail;  /* Previous node(s) of this chain, or 0 if none. */
   int count;  /* Leaf symbol index, or number of leaves before this chain. */
 }
 #if defined(__GNUC__) && (defined(__i386__) || defined(_M_IX86) || defined(__x86_64__) || defined(_M_X64))
@@ -119,6 +118,66 @@ static void ExtractBitLengths(Node* chain, Node* leaves, unsigned* bitlengths) {
   }
 }
 
+#define NODE_LESS(x, y) (((x).weight < (y).weight) || (((x).weight == (y).weight) && ((x).count < (y).count)))
+#define NODE_COPY(dst_, src_)  memcpy((dst_), (src_), sizeof(Node))
+#define NODE_SWAP(a_, b_, tmp_) do { NODE_COPY(&(tmp_), (a_)); NODE_COPY((a_), (b_)); NODE_COPY((b_), &(tmp_)); } while (0)
+
+static ZOPFLI_INLINE void insertion_sort(Node *a, size_t n) {
+  for (size_t i = 1; i < n; ++i) {
+    Node v; NODE_COPY(&v, &a[i]);
+    size_t j = i;
+    while (j && (a[j - 1].weight > v.weight)) { NODE_COPY(&a[j], &a[j - 1]); --j; }
+    NODE_COPY(&a[j], &v);
+  }
+}
+
+static ZOPFLI_INLINE void heapify_range(Node *a, size_t n, size_t i) {
+  Node t; NODE_COPY(&t, &a[i]);
+  for (;;) {
+    size_t l = 2 * i + 1, r = l + 1;
+    size_t m = (r < n && NODE_LESS(a[l], a[r])) ? r : l;
+    m = (l < n && NODE_LESS(t, a[m])) ? m : i;
+    if (m == i) break;
+    NODE_COPY(&a[i], &a[m]); i = m;
+  }
+  NODE_COPY(&a[i], &t);
+}
+
+static ZOPFLI_INLINE void heap_sort(Node *a, size_t n) {
+  if (n <= 1) return;
+  for (size_t i = (n - 1) / 2 + 1; i-- > 0;) heapify_range(a, n, i);
+  for (size_t i = n; i-- > 1;) { Node t; NODE_SWAP(&a[0], &a[i], t); heapify_range(a, i, 0); }
+}
+
+static ZOPFLI_INLINE size_t sort_partition(Node *a, size_t lo, size_t hi) {
+  Node pivot; NODE_COPY(&pivot, &a[lo + ((hi - lo) >> 1)]);
+  size_t i = lo - 1, j = hi;
+  for (;;) {
+    do { ++i; } while (NODE_LESS(a[i], pivot));
+    do { --j; } while (NODE_LESS(pivot, a[j]));
+    if (i >= j) return j + 1;
+    Node t; NODE_SWAP(&a[i], &a[j], t);
+  }
+}
+
+#define INTRO_CUTOFF 128
+static void intro_sort_core(Node *a, size_t lo, size_t hi, unsigned depth) {
+  for (;;) {
+    size_t n = hi - lo; if (n <= (size_t)INTRO_CUTOFF) { insertion_sort(a + lo, n); return; }
+    if (!depth) { heap_sort(a + lo, n); return; }
+    --depth;
+    size_t split = sort_partition(a, lo, hi), nL = split - lo, nR = hi - split;
+    if (nL < nR) { if (nL) intro_sort_core(a, lo, split, depth); lo = split; }
+    else         { if (nR) intro_sort_core(a, split, hi, depth); hi = split; }
+  }
+}
+
+/* intro sort using quick sort with fallback heap sort (on deep recursion) and insertion sort cutoff */
+static ZOPFLI_INLINE void node_intro_sort(Node *a, size_t n) {
+  if (n <= INTRO_CUTOFF) { insertion_sort(a, n); return; }
+  intro_sort_core(a, 0, n, 2u * floor_log2_sz(n));
+}
+
 void ZopfliLengthLimitedCodeLengths(const size_t* frequencies, int n, int maxbits, unsigned* bitlengths) {
   int i;
   int numsymbols = 0;  /* Amount of symbols with frequency > 0. */
@@ -156,21 +215,7 @@ void ZopfliLengthLimitedCodeLengths(const size_t* frequencies, int n, int maxbit
     return;
   }
 
-  struct {
-    bool operator()(const Node a, const Node b) {
-      return (a.weight < b.weight);
-    }
-  } cmp;
-
-  /* Sort the leaves from lightest to heaviest. */
-  for (i = 0; i < numsymbols; i++) {
-    leaves[i].weight = (leaves[i].weight << 9) | leaves[i].count;
-  }
-  std::sort(leaves, leaves + numsymbols, cmp);
-
-  for (i = 0; i < numsymbols; i++) {
-    leaves[i].weight >>= 9;
-  }
+  node_intro_sort(leaves, numsymbols);
 
   if (numsymbols - 1 < maxbits) {
     maxbits = numsymbols - 1;
