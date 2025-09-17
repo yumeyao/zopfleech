@@ -14,8 +14,8 @@ ifeq ($(OS),Windows_NT)
 	CXXFLAGS += -mno-ms-bitfields
 	CMAKE += -G "MSYS Makefiles"
 endif
-OBJECTS = blocksplitter.o image.o lz77.o opngreduc.o squeeze.o util.o LzFind.o miniz.o transupp.o katajainen.o
-CXXSRC = support.cpp zopflipng.cpp zopfli/deflate.cpp zopfli/zopfli_gzip.cpp \
+OBJECTS = blocksplitter.o image.o lz77.o opngreduc.o squeeze.o util.o LzFind.o miniz.o transupp.o katajainen.o deflate.o
+CXXSRC = support.cpp zopflipng.cpp zopfli/zopfli_gzip.cpp \
 lodepng/lodepng.cpp lodepng/lodepng_util.cpp optipng/codec.cpp optipng/optipng.cpp jpegtran.cpp gztools.cpp \
 leanify/zip.cpp leanify/leanify.cpp
 
@@ -23,7 +23,7 @@ leanify/zip.cpp leanify/leanify.cpp
 all: deps bin
 
 bin: deps
-	$(CC) -c $(UCFLAGS) optipng/image.c zopfli/util.c zopfli/squeeze.c zopfli/lz77.c zopfli/katajainen.c \
+	$(CC) -c $(UCFLAGS) optipng/image.c zopfli/util.c zopfli/squeeze.c zopfli/lz77.c zopfli/katajainen.c zopfli/deflate.c \
 	zopfli/blocksplitter.c optipng/opngreduc/opngreduc.c zopfli/LzFind.c miniz/miniz.c mozjpeg/transupp.c
 	$(CXX) $(UCXXFLAGS) main.cpp libz.a $(OBJECTS) $(CXXSRC) mozjpeg/libjpeg.a libpng/libpng.a -o ${BINPREFIX}/ect $(LDFLAGS)
 clean:

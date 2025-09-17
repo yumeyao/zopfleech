@@ -36,7 +36,6 @@ Author: jyrki.alakuijala@gmail.com (Jyrki Alakuijala)
 #include "squeeze.h"
 #include "match.h"
 #include "LzFind.h"
-#include "../threadLocal.h"
 
 static void CopyStats(const SymbolStats* source, SymbolStats* dest) {
   memcpy(dest->litlens, source->litlens, 288 * sizeof(dest->litlens[0]));
@@ -129,8 +128,8 @@ static void CleanCache(LZCache* c){
   free(c->cache);
 }
 
-thread_local CMatchFinder mf;
-thread_local int right;
+CMatchFinder mf;
+int right;
 
 #include <stdint.h>
 typedef  uint8_t BYTE;
@@ -907,7 +906,7 @@ static void LZ77OptimalRun(const ZopfliOptions* options, const unsigned char* in
 }
 
 /*TODO: Replace this w/ proper implementation. This performs bad on files w/ changing redundancy */
-static thread_local SymbolStats st;
+static SymbolStats st;
 
 static void ZopfliLZ77Optimal(const ZopfliOptions* options,
                        const unsigned char* in, size_t instart, size_t inend,
@@ -1209,7 +1208,7 @@ void ZopfliLZ77Optimal2(const ZopfliOptions* options,
         }
       }
     }
-    if (!costmodelnotinited && !options->multithreading){
+    if (!costmodelnotinited){
       MixCostmodels(&st, &stats, .2);
     }
   }
@@ -1225,9 +1224,7 @@ void ZopfliLZ77Optimal2(const ZopfliOptions* options,
   LZ77OptimalRun(options, in, instart, inend, length_array, options->reuse_costmodel ? &st : &stats, store, 0, 0, mfinexport, 0);
   free(length_array);
 
-  if (!options->multithreading){
-    GetStatistics(store, &st);
-  }
+  GetStatistics(store, &st);
 }
 
 void ZopfliLZ77OptimalFixed(const ZopfliOptions* options,

@@ -212,6 +212,16 @@ unsigned ZopfliGetLengthSymbol(unsigned l) {
   return table[l];
 }
 
+typedef struct ZopfliOptionsMin {
+  int numiterations;
+  unsigned searchext;
+  unsigned short filter_style;
+  unsigned noblocksplit;
+  unsigned trystatic;
+  unsigned skipdynamic;
+  unsigned noblocksplitlz;
+} ZopfliOptionsMin;
+
 static const ZopfliOptionsMin opt[8] =
 {
   { 1, 0, 0, 2000,    0, 180,  800}, /* 2 */
@@ -224,7 +234,7 @@ static const ZopfliOptionsMin opt[8] =
   {60, 2, 3,  800, 3000,  80,  100}  /* 9 */
 };
 
-void ZopfliInitOptions(ZopfliOptions* options, unsigned _mode, unsigned multithreading, unsigned isPNG) {
+void ZopfliInitOptions(ZopfliOptions* options, unsigned _mode, unsigned isPNG) {
   options->twice = (_mode - (_mode % 10000)) / 10000;
   unsigned mode = _mode % 10000 > 9 ? 9 : _mode % 10000;
   if (mode < 2){
@@ -248,9 +258,8 @@ void ZopfliInitOptions(ZopfliOptions* options, unsigned _mode, unsigned multithr
   options->num = mode < 6 ? 3 : 9;
 
   options->replaceCodes = 1000 * (mode > 2) + 1;
-  options->multithreading = multithreading;
   options->isPNG = isPNG;
-  options->reuse_costmodel = (!isPNG || mode > 6) && multithreading < 2;
+  options->reuse_costmodel = (!isPNG || mode > 6);
   options->useCache = 1;
   options->ultra = (mode >= 5) + (options->numiterations > 60) + (options->numiterations > 90);
   options->entropysplit = mode < 3;

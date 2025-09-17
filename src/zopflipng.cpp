@@ -64,7 +64,7 @@ static unsigned CustomPNGDeflate(unsigned char** out, size_t* outsize, const uns
   const ZopfliPNGOptions* png_options = static_cast<const ZopfliPNGOptions*>(settings->custom_context);
   unsigned char bp = 0;
   ZopfliOptions options;
-  ZopfliInitOptions(&options, png_options->Mode, png_options->multithreading, 1);
+  ZopfliInitOptions(&options, png_options->Mode, 1);
   ZopfliDeflate(&options, 1, in, insize, &bp, out, outsize);
   return 0;
 }
@@ -363,7 +363,7 @@ static unsigned TryOptimize(unsigned char* image, size_t imagesize, unsigned w, 
   state.encoder.quiet = png_options->quiet;
 
   ZopfliOptions dummyoptions;
-  ZopfliInitOptions(&dummyoptions, png_options->Mode, 0, 0);
+  ZopfliInitOptions(&dummyoptions, png_options->Mode, 0);
   state.encoder.filter_style = dummyoptions.filter_style;
   state.encoder.text_compression = 0;
   if (bit16) {

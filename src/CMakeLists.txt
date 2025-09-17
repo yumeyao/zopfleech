@@ -119,7 +119,7 @@ endif()
 # Enable ZLIB_CONST for everything
 add_definitions(-DZLIB_CONST)
 
-option(ECT_MULTITHREADING "Enable multithreaded processing support" ON)
+option(ECT_MULTITHREADING "Enable multithreaded processing support" OFF)
 option(ECT_MP3_SUPPORT "Enable MP3 support (not currently working)" OFF)
 
 add_subdirectory(leanify EXCLUDE_FROM_ALL)

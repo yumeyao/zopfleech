@@ -308,7 +308,7 @@ int ZopfliGzip(const char* infilename, const char* outfilename, unsigned mode, u
 
 void ZopfliBuffer(unsigned mode, unsigned multithreading, const unsigned char* in, size_t insize, unsigned char** out, size_t* outsize) {
   ZopfliOptions options;
-  ZopfliInitOptions(&options, mode, multithreading, 0);
+  ZopfliInitOptions(&options, mode, 0);
   unsigned char bp = 0;
   ZopfliDeflate(&options, 1, in, insize, &bp, out, outsize);
 }

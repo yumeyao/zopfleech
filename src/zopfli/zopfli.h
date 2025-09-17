@@ -71,9 +71,6 @@ typedef struct ZopfliOptions {
   /*When using more than one iteration, this will save the found matches on the first run so they don't need to be found again. Uses large amounts of memory.*/
   unsigned useCache;
 
-  /*Use per block multithreading*/
-  unsigned multithreading;
-
   /*Use tuning for PNG files*/
   unsigned isPNG;
 
@@ -96,17 +93,8 @@ typedef struct ZopfliOptions {
   unsigned advanced;
 } ZopfliOptions;
 
-typedef struct ZopfliOptionsMin {
-  int numiterations;
-  unsigned searchext;
-  unsigned short filter_style;
-  unsigned noblocksplit;
-  unsigned trystatic;
-  unsigned skipdynamic;
-  unsigned noblocksplitlz;
-} ZopfliOptionsMin;
 /* Initializes options with default values. */
-void ZopfliInitOptions(ZopfliOptions* options, unsigned mode, unsigned multithreading, unsigned isPNG);
+void ZopfliInitOptions(ZopfliOptions* options, unsigned mode, unsigned isPNG);
 
 #ifdef __cplusplus
 }  // extern "C"
