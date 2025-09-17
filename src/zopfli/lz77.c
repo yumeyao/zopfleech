@@ -21,6 +21,7 @@ Author: jyrki.alakuijala@gmail.com (Jyrki Alakuijala)
 
 #include "lz77.h"
 #include "util.h"
+#include "symbols.h"
 #include "match.h"
 
 #include <assert.h>

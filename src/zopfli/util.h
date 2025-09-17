@@ -109,28 +109,6 @@ Used to initialize costs for example
 */
 #define ZOPFLI_LARGE_FLOAT 1e30
 
-/*
-Gets the symbol for the given length, cfr. the DEFLATE spec.
-Returns the symbol in the range [257-285] (inclusive)
-*/
-unsigned ZopfliGetLengthSymbol(unsigned l);
-
-/* Gets the amount of extra bits for the given length, cfr. the DEFLATE spec. */
-unsigned ZopfliGetLengthExtraBits(unsigned l);
-
-/* Gets value of the extra bits for the given length, cfr. the DEFLATE spec. */
-unsigned ZopfliGetLengthExtraBitsValue(unsigned l);
-
-/* Gets the symbol for the given dist, cfr. the DEFLATE spec. */
-int ZopfliGetDistSymbol(int dist);
-int ZopfliNextDistSymbol(int dist);
-
-/* Gets the amount of extra bits for the given dist, cfr. the DEFLATE spec. */
-unsigned ZopfliGetDistExtraBits(unsigned dist);
-
-/* Gets value of the extra bits for the given dist, cfr. the DEFLATE spec. */
-unsigned ZopfliGetDistExtraBitsValue(unsigned dist);
-
 #ifdef __GNUC__
 #define likely(x)      __builtin_expect(!!(x), 1)
 #define unlikely(x)    __builtin_expect(!!(x), 0)

@@ -19,6 +19,7 @@ add_library(zopfli
 	match.h
 	squeeze.h
 	util.h
+	symbols.h
 	zlib_container.h
 	zopfli.h
 	LzFind.h)

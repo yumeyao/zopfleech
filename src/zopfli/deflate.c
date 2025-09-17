@@ -24,6 +24,7 @@ Author: jyrki.alakuijala@gmail.com (Jyrki Alakuijala)
 #include "blocksplitter.h"
 #include "lz77.h"
 #include "squeeze.h"
+#include "symbols.h"
 #include "katajainen.h"
 
 #include <assert.h>

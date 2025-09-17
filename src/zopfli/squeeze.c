@@ -34,6 +34,7 @@ Author: jyrki.alakuijala@gmail.com (Jyrki Alakuijala)
 #include "katajainen.h"
 #include "util.h"
 #include "squeeze.h"
+#include "symbols.h"
 #include "match.h"
 #include "LzFind.h"
 
