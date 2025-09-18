@@ -22,7 +22,7 @@ Author: jyrki.alakuijala@gmail.com (Jyrki Alakuijala)
 #include <sys/stat.h>
 
 #include "zopfli.h"
-#include "../zlib/zlib.h"
+#include "zlib.h"
 #include "deflate.h"
 #include "zopfli.h"
 #include "zlib_container.h"

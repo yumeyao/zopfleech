@@ -6,7 +6,6 @@
 #include "main.h"
 #include "support.h"
 #include "gztools.h"
-#include "miniz/miniz.h"
 #include <limits.h>
 #include <atomic>
 
@@ -344,170 +343,8 @@ unsigned fileHandler(const char * Infile, const ECTOptions& Options, int interna
 }
 
 unsigned zipHandler(std::vector<int> args, const char * argv[], int files, const ECTOptions& Options){
-    std::string extension = ((std::string)argv[args[0]]).substr(((std::string)argv[args[0]]).find_last_of(".") + 1);
-    std::string zipfilename = argv[args[0]];
-    size_t local_bytes = 0;
-    unsigned i = 0;
-    time_t t = -1;
-    if((extension=="zip" || extension=="ZIP" || IsZIP(argv[args[0]]) == 1) && !isDirectory(argv[args[0]])){
-        i++;
-        if(exists(argv[args[0]])){
-            local_bytes += filesize(zipfilename.c_str());
-            if(Options.keep){
-                t = get_file_time(argv[args[0]]);
-            }
-        }
-    } else {
-        //Construct name
-        if (!isDirectory(argv[args[0]])
-#ifdef FS_SUPPORTED
-           && std::filesystem::is_regular_file(argv[args[0]])
-#endif
-           ) {
-            // Cut off file extension, but handle file names beginning with a dot correctly
-            if(zipfilename.find_last_of(".") > zipfilename.find_last_of("/\\") + 1) {
-                zipfilename = zipfilename.substr(0, zipfilename.find_last_of("."));
-            }
-        } else {
-            // Work around relative directory names ending in '.' or '..'
-            // TODO: Implement a proper file name parser and use the absolute path in all cases.
-#ifndef _WIN32
-            char abs_path[PATH_MAX];
-            if (!realpath(argv[args[0]], abs_path)) {
-#else
-            char abs_path[MAX_PATH];
-            if (!GetFullPathNameA(argv[args[0]], MAX_PATH, abs_path, 0)) {
-#endif
-                printf("Error: Could not find directory\n");
-                return 1;
-            }
-            zipfilename = abs_path;
-            if(zipfilename.back() == '/' || zipfilename.back() == '\\') {
-                zipfilename.pop_back();
-            }
-        }
-        zipfilename += ".zip";
-        if(exists(zipfilename.c_str())){
-            printf("Error: ZIP file for chosen file/folder already exists, but is not listed.\n");
-            return 1;
-        }
-    }
-
-    int error = 0;
-    for(; error == 0 && i < files; i++){
-        if(isDirectory(argv[args[i]])){
-#ifdef FS_SUPPORTED
-            std::string fold = std::filesystem::canonical(argv[args[i]]).generic_string();
-            int substr = std::filesystem::path(fold).has_parent_path() ? std::filesystem::path(fold).parent_path().generic_string().length() + 1 : 0;
-
-            std::filesystem::recursive_directory_iterator a(fold), b;
-            std::vector<std::filesystem::path> paths(a, b);
-            for(unsigned j = 0; j < paths.size(); j++){
-                std::string newfile = paths[j].generic_string();
-                const char* name = newfile.erase(0, substr).c_str();
-                std::string file_string = paths[j].generic_string();
-                const char* file_path = file_string.c_str();
-
-                if(isDirectory(file_path)){
-                    //Only add dir if it is empty to minimize filesize
-                    if (j + 1 < files) {
-                        std::string next = paths[j + 1].generic_string();
-                        if (next.compare(0, file_string.size(), file_string) == 0) {
-                            continue;
-                        }
-                    }
-                    if (!mz_zip_add_mem_to_archive_file_in_place(zipfilename.c_str(), (((std::string)name) + "/").c_str(), 0, 0, 0, 0, file_path)) {
-                        printf("can't add directory '%s'\n", file_path);
-                    }
-                }
-                else{
-                    long long f = filesize(file_path);
-                    if(f > UINT_MAX){
-                        printf("%s: file too big\n", file_path);
-                        continue;
-                    }
-                    if(f < 0){
-                        printf("%s: can't read file\n", file_path);
-                        continue;
-                    }
-                    char* file = (char*)malloc(f);
-                    if(!file){
-                        exit(1);
-                    }
-                    FILE* stream = fopen(file_path, "rb");
-                    if (!stream){
-                        free(file); error = 1; continue;
-                    }
-                    if (fread(file, 1, f, stream) != f){
-                        fclose(stream); free(file); error = 1; continue;
-                    }
-                    fclose(stream);
-                    if(!mz_zip_add_mem_to_archive_file_in_place(zipfilename.c_str(), name, file, f, 0, 0, file_path)){
-                        printf("can't add file '%s'\n", file_path);
-                        free(file); error = 1; continue;
-                    }
-                    else{
-                        local_bytes += filesize(file_path);
-                    }
-                    free(file);
-                }
-            }
-            if(!paths.size()){
-                if (!mz_zip_add_mem_to_archive_file_in_place(zipfilename.c_str(), (fold.erase(0, substr) + "/").c_str(), 0, 0, 0, 0, argv[args[i]])) {
-                    printf("can't add directory '%s'\n", argv[args[i]]);
-                }
-            }
-#else
-            printf("%s: Zipping folders is not supported\n", argv[args[i]]);
-#endif
-        }
-        else{
-
-            const char* fname = argv[args[i]];
-            long long f = filesize(fname);
-            if(f > UINT_MAX){
-                printf("%s: file too big\n", fname);
-                continue;
-            }
-            if(f < 0){
-                printf("%s: can't read file\n", fname);
-                continue;
-            }
-            char* file = (char*)malloc(f);
-            if(!file){
-                exit(1);
-            }
-
-            FILE * stream = fopen (fname, "rb");
-            if (!stream){
-                free(file); error = 1; continue;
-            }
-            if (fread(file, 1, f, stream) != f){
-                fclose(stream); free(file); error = 1; continue;
-            }
-
-            fclose(stream);
-            if (!mz_zip_add_mem_to_archive_file_in_place(zipfilename.c_str(), ((std::string)argv[args[i]]).substr(((std::string)argv[args[i]]).find_last_of("/\\") + 1).c_str(), file, f, 0, 0, argv[args[i]])
-                ) {
-                printf("can't add file '%s'\n", argv[0]);
-                free(file); error = 1; continue;
-            }
-            local_bytes += filesize(argv[args[i]]);
-
-            free(file);
-
-        }
-    }
-    size_t localProcessedFiles = 0;
-    ReZipFile(zipfilename.c_str(), Options, &localProcessedFiles);
-    processedfiles.fetch_add(localProcessedFiles);
-    if(t >= 0){
-        set_file_time(zipfilename.c_str(), t);
-    }
-
-    bytes.fetch_add(local_bytes);
-    savings.fetch_add(local_bytes - filesize(zipfilename.c_str()));
-    return error;
+    std::fprintf(stderr, "ect: zip disabled in this build.\n");
+    return 2;
 }
 
 static void multithreadFileLoop(const std::vector<std::string> &fileList, std::atomic<size_t> *pos, const ECTOptions &options, std::atomic<unsigned> *error) {
@@ -677,4 +514,23 @@ int main(int argc, const char * argv[]) {
     }
     else {Usage();}
     return error.load(std::memory_order_seq_cst);
+}
+
+int Optipng(unsigned /*level*/, const char * /*Infile*/, bool /*force_no_palette*/, unsigned /*clean_alpha*/) {
+    std::fprintf(stderr, "ect: PNG optimization disabled in this build.\n");
+    return 2; // non-zero to indicate no-op/failure
+}
+
+int Zopflipng(bool /*strip*/, const char * /*Infile*/, bool /*strict*/, unsigned /*Mode*/, int /*filter*/, unsigned /*multithreading*/, unsigned /*quiet*/) {
+    std::fprintf(stderr, "ect: Zopflipng disabled in this build.\n");
+    return 2;
+}
+
+int mozjpegtran (bool arithmetic, bool progressive, bool strip, unsigned autorotate, const char * Infile, const char * Outfile, size_t* stripped_outsize) {
+    std::fprintf(stderr, "ect: JPEG optimization disabled in this build.\n");
+    return 2;
+}
+
+void ReZipFile(const char* file_path, const ECTOptions& Options, size_t* files) {
+    std::fprintf(stderr, "ect: rezip disabled in this build.\n");
 }

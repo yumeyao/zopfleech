@@ -7,8 +7,7 @@
 //
 
 #include "gztools.h"
-#include "zlib/zlib.h"
-#include "leanify/zip.h"
+#include "zlib.h"
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
@@ -98,5 +97,6 @@ int IsZIP(const char * Infile){
   }
   fclose(stream);
 
-  return memcmp(buf, Zip::header_magic, 4) == 0;
+  const char header_magic[] = { 0x50, 0x4B, 0x03, 0x04 };
+  return memcmp(buf, header_magic, 4) == 0;
 }

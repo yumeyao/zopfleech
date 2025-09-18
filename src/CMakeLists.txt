@@ -11,23 +11,18 @@ if(NOT CMAKE_BUILD_TYPE)
 	set(CMAKE_BUILD_TYPE Release)
 endif()
 
-# Check that submodules are present only if source was downloaded with git
-if(EXISTS "${CMAKE_SOURCE_DIR}/../.git" AND NOT EXISTS "${CMAKE_SOURCE_DIR}/../src/libpng/README")
-    message (FATAL_ERROR "Submodules are not initialized. Run \n\tgit submodule update --init --recursive\n within the repository")
-endif()
+
+find_package(ZLIB REQUIRED)
 
 add_executable(ect
 	main.cpp
 	gztools.cpp
-	jpegtran.cpp
 	support.cpp
-	zopflipng.cpp
 	# Add headers so they get added to things like Xcode projects
 	gztools.h
 	main.h
 	pngusr.h
-	support.h
-	mozjpeg/transupp.c)
+	support.h)
 
 add_executable(ect::ect ALIAS ect)
 
@@ -119,48 +114,12 @@ endif()
 # Enable ZLIB_CONST for everything
 add_definitions(-DZLIB_CONST)
 
-option(ECT_MULTITHREADING "Enable multithreaded processing support" OFF)
-option(ECT_MP3_SUPPORT "Enable MP3 support (not currently working)" OFF)
-
-add_subdirectory(leanify EXCLUDE_FROM_ALL)
-add_subdirectory(lodepng EXCLUDE_FROM_ALL)
-add_subdirectory(miniz EXCLUDE_FROM_ALL)
-add_subdirectory(zlib EXCLUDE_FROM_ALL)
 add_subdirectory(zopfli EXCLUDE_FROM_ALL)
-file(COPY ${CMAKE_SOURCE_DIR}/pngusr.h DESTINATION ${CMAKE_SOURCE_DIR}/libpng/)
-add_subdirectory(optipng EXCLUDE_FROM_ALL)
 # Mozjpeg changes the install prefix if it thinks the current is defaulted
 set(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT FALSE)
-add_subdirectory(mozjpeg EXCLUDE_FROM_ALL)
 
 target_link_libraries(ect
-	leanify::leanify
-	lodepng::lodepng
-	miniz::miniz
-	optipng::optipng
 	zopfli::zopfli
-	zlib::zlib
-	jpeg-static)
-
-# mozjpeg generates some header files that we need to be able to include
-target_include_directories(ect
-	PRIVATE
-		${CMAKE_CURRENT_BINARY_DIR}/mozjpeg)
-
-if(NOT ECT_MULTITHREADING)
-	target_compile_definitions(ect
-		PRIVATE
-			NOMULTI=1)
-else()
-	find_package(Threads REQUIRED)
-	target_link_libraries(ect
-		Threads::Threads)
-endif()
-
-if(ECT_MP3_SUPPORT)
-	target_compile_definitions(ect
-		PRIVATE
-			MP3_SUPPORTED=1)
-endif()
+	ZLIB::ZLIB)
 
 install(TARGETS ect RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
