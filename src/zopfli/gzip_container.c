@@ -20,6 +20,7 @@ Author: jyrki.alakuijala@gmail.com (Jyrki Alakuijala)
 #include "deflate.h"
 #include "gzip_container.h"
 #include "util.h"
+#include <string.h>
 
 /* CRC polynomial: 0xedb88320 */
 static const unsigned long crc32_table[256] = {
@@ -82,42 +83,24 @@ void ZopfliGzipCompress(const ZopfliOptions* options,
                         const unsigned char* in, size_t insize,
                         unsigned char** out, size_t* outsize,
                         unsigned time, const char* name) {
-  unsigned crcvalue = crc32(0, in, insize);
+  unsigned crc = crc32(0, in, insize);
   unsigned char bp = 0;
   unsigned char has_name = name && *name; /* The lib just do basic check, path strip done by caller. */
   unsigned char flg = has_name ? 8 : 0;
 
-  ZOPFLI_APPEND_DATA(31, out, outsize);  /* ID1 */
-  ZOPFLI_APPEND_DATA(139, out, outsize);  /* ID2 */
-  ZOPFLI_APPEND_DATA(8, out, outsize);  /* CM */
-  ZOPFLI_APPEND_DATA(flg, out, outsize);  /* FLG */
-  /* MTIME */
-  ZOPFLI_APPEND_DATA(time & 0xff, out, outsize);
-  ZOPFLI_APPEND_DATA((time >> 8) & 0xff, out, outsize);
-  ZOPFLI_APPEND_DATA((time >> 16) & 0xff, out, outsize);
-  ZOPFLI_APPEND_DATA((time >> 24) & 0xff, out, outsize);
-
-  ZOPFLI_APPEND_DATA(2, out, outsize);  /* XFL, 2 indicates best compression. */
-  ZOPFLI_APPEND_DATA(3, out, outsize);  /* OS follows Unix conventions. */
-
-  if (has_name) {
-    do {
-      ZOPFLI_APPEND_DATA(*name, out, outsize);
-    } while (*name++);
-  }
+  unsigned char hdr[10] = {31, 139, 8, flg, /* ID1 ID2 CM FLG */
+                           time & 0xff, (time >> 8) & 0xff, (time >> 16) & 0xff, (time >> 24) & 0xff,
+                           2, 3  /* XFL, 2 indicates best compression. OS follows Unix conventions. */
+                          };
+  ZOPFLI_APPEND_ARRAY(hdr, out, outsize);
+  if (has_name) ZOPFLI_APPEND_PARRAY(name, strlen(name) + 1, out, outsize);
 
   ZopfliDeflate(options, 1 /* final */,
                 in, insize, &bp, out, outsize);
 
   /* CRC */
-  ZOPFLI_APPEND_DATA(crcvalue % 256, out, outsize);
-  ZOPFLI_APPEND_DATA((crcvalue >> 8) % 256, out, outsize);
-  ZOPFLI_APPEND_DATA((crcvalue >> 16) % 256, out, outsize);
-  ZOPFLI_APPEND_DATA((crcvalue >> 24) % 256, out, outsize);
-
-  /* ISIZE */
-  ZOPFLI_APPEND_DATA(insize % 256, out, outsize);
-  ZOPFLI_APPEND_DATA((insize >> 8) % 256, out, outsize);
-  ZOPFLI_APPEND_DATA((insize >> 16) % 256, out, outsize);
-  ZOPFLI_APPEND_DATA((insize >> 24) % 256, out, outsize);
+  unsigned char ftr[8] = {crc & 0xff, (crc >> 8) & 0xff, (crc >> 16) & 0xff, (crc >> 24) & 0xff,
+                          insize & 0xff, (insize >> 8) & 0xff, (insize >> 16) & 0xff, (insize >> 24) & 0xff
+                         };
+  ZOPFLI_APPEND_ARRAY(ftr, out, outsize);
 }

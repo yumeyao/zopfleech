@@ -128,28 +128,24 @@ size that you consider the array to be, not the internal allocation size.
 Precondition: allocated size of data is at least a power of two greater than or
 equal than *size.
 */
-#ifdef __cplusplus /* C++ cannot assign void* from malloc to *data */
 #define ZOPFLI_APPEND_DATA(/* T */ value, /* T** */ data, /* size_t* */ size) {\
   if (!((*size) & ((*size) - 1))) {\
-    /*double alloc size if it's a power of two*/\
-    void** data_void = reinterpret_cast<void**>(data);\
-    *data_void = (*size) == 0 ? malloc(sizeof(**data))\
-                              : realloc((*data), (*size) * 2 * sizeof(**data));\
+    /* double alloc size if it's a power of two */\
+    (*(void**)(data)) = realloc(*(data), ((*size) ? (*size) * 2 : 1) * sizeof(**data));\
   }\
-  (*data)[(*size)] = (value);\
+  (*(data))[(*size)] = (value);\
   (*size)++;\
 }
-#else /* C gives problems with strict-aliasing rules for (void**) cast */
-#define ZOPFLI_APPEND_DATA(/* T */ value, /* T** */ data, /* size_t* */ size) {\
-  if (!((*size) & ((*size) - 1))) {\
-    /*double alloc size if it's a power of two*/\
-    (*data) = (*size) == 0 ? malloc(sizeof(**data))\
-                           : realloc((*data), (*size) * 2 * sizeof(**data));\
-  }\
-  (*data)[(*size)] = (value);\
-  (*size)++;\
-}
-#endif
+#define ZOPFLI_APPEND_PARRAY(/* T* */ array, /* size_t */ _count, /* T** */ data, /* size_t* */ size) \
+do { \
+  size_t count = (_count); /* assume(count >= 2), so safe for the bit_ceil below */ \
+  size_t demanded = /* bit_ceil */ ((size_t)1) << (floor_log2_sz(*(size) + count - 1) + 1); \
+  if (demanded >= (*(size)) * 2) (*(void**)(data)) = realloc(*(data), demanded * sizeof(**(data))); \
+  for (size_t i = 0; i < count; ++i) (*(data))[(*(size)) + i] = (array)[i]; \
+  (*(size)) += count; \
+} while (0)
+#define ZOPFLI_APPEND_ARRAY(/* T[] */ array, /* T** */ data, /* size_t* */ size) \
+ZOPFLI_APPEND_PARRAY(array, sizeof(array) / sizeof((array)[0]), data, size)
 
 #ifdef __cplusplus
 }

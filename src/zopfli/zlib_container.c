@@ -57,14 +57,12 @@ void ZopfliZlibCompress(const ZopfliOptions* options,
   unsigned fcheck = 31 - cmfflg % 31;
   cmfflg += fcheck;
 
-  ZOPFLI_APPEND_DATA(cmfflg / 256, out, outsize);
-  ZOPFLI_APPEND_DATA(cmfflg % 256, out, outsize);
+  unsigned char hdr[2] = {cmfflg / 256, cmfflg % 256};
+  ZOPFLI_APPEND_ARRAY(hdr, out, outsize);
 
   ZopfliDeflate(options, 1 /* final */,
                 in, insize, &bitpointer, out, outsize);
 
-  ZOPFLI_APPEND_DATA((checksum >> 24) % 256, out, outsize);
-  ZOPFLI_APPEND_DATA((checksum >> 16) % 256, out, outsize);
-  ZOPFLI_APPEND_DATA((checksum >> 8) % 256, out, outsize);
-  ZOPFLI_APPEND_DATA(checksum % 256, out, outsize);
+  unsigned char ftr[4] = {(checksum >> 24) % 256, (checksum >> 24) % 256, (checksum >> 24) % 256, checksum % 256};
+  ZOPFLI_APPEND_ARRAY(ftr, out, outsize);
 }
