@@ -8,6 +8,7 @@
 #include "gztools.h"
 #include <limits.h>
 #include <atomic>
+#include <sys/stat.h>
 
 #ifndef NOMULTI
 #include <thread>
@@ -148,11 +149,17 @@ static int ECTGzip(const char * Infile, const unsigned Mode, unsigned char multi
         fprintf(stderr, "%s: Compressed file already exists\n", Infile);
         return 2;
       }
-      if (ZopfliGzip(Infile, out_name, Mode, multithreading, ZIP, 0, Infile)) {return 2;}
+      if (ZIP) {
+        fprintf(stderr, "%s: ZIP not supported in this build\n", Infile);
+        return 2;
+      }
+      if (ZopfliGzip(Infile, out_name, Mode, Infile)) {return 2;}
       return 1;
     }
     else {
-      if (exists(out_name) || ZopfliGzip(Infile, out_name, Mode, multithreading, ZIP, 1, gzip_name)) {
+      if (exists(out_name) || 1) {
+        fprintf(stderr, "%s: recompress not supported in this build\n", Infile);
+        return 2;
         if (gzip_name) {
           free(gzip_name);
         }
@@ -290,6 +297,21 @@ static void OptimizeMP3(const char * Infile, const ECTOptions& Options){
     }
 }
 #endif
+
+extern "C" int ZopfliGzip(const char* infilename, const char* outfilename, unsigned mode, const char* gzip_name, unsigned time);
+
+/*
+ outfilename: filename to write output to, or 0 to write to stdout instead
+ */
+int ZopfliGzip(const char* infilename, const char* outfilename, unsigned mode, const char* gzip_name) {
+  time_t time = 0;
+  if (infilename) {
+    struct stat st;
+    stat(infilename, &st);
+    time = st.st_mtime;
+  }
+  return ZopfliGzip(infilename, outfilename, mode, gzip_name, (unsigned)time);
+}
 
 unsigned fileHandler(const char * Infile, const ECTOptions& Options, int internal){
     std::string Ext = Infile;

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
-project(zopfli LANGUAGES C CXX)
+project(zopfli LANGUAGES C)
 
 add_library(zopfli
 	blocksplitter.c
@@ -9,7 +9,8 @@ add_library(zopfli
 	squeeze.c
 	util.c
 	zlib_container.c
-	zopfli_gzip.cpp
+	gzip_container.c
+	zopfli_lib.c
 	LzFind.c
 	
 	blocksplitter.h
@@ -21,21 +22,10 @@ add_library(zopfli
 	util.h
 	symbols.h
 	zlib_container.h
+	gzip_container.h
 	zopfli.h
 	LzFind.h)
 
 add_library(zopfli::zopfli ALIAS zopfli)
 
-target_compile_features(zopfli
-	PRIVATE
-		cxx_std_11)
-
-if(NOT ECT_MULTITHREADING)
-	target_compile_definitions(zopfli
-		PRIVATE
-			NOMULTI=1)
-else()
-	find_package(Threads REQUIRED)
-	target_link_libraries(zopfli
-		Threads::Threads)
-endif()
+target_link_libraries(zopfli m)

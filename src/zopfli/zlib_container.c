@@ -20,7 +20,30 @@ Author: jyrki.alakuijala@gmail.com (Jyrki Alakuijala)
 #include "deflate.h"
 #include "zlib_container.h"
 #include "util.h"
-#include "zlib.h"
+
+/* Calculates the adler32 checksum of the data */
+static unsigned adler32(unsigned adler, const unsigned char* data, size_t size)
+{
+  enum {sums_overflow = 5552};
+  unsigned s1 = adler & 0xffff, s2 = adler >> 16;
+
+  while (size > 0) {
+    size_t amount = size > sums_overflow ? sums_overflow : size;
+    size -= amount;
+#ifdef __GNUC__
+#pragma GCC unroll 1 /* no unroll */
+#endif
+    do {
+      s1 += (*data++);
+      s2 += s1;
+      amount--;
+    } while (amount > 0);
+    s1 %= 65521;
+    s2 %= 65521;
+  }
+
+  return (s2 << 16) | s1;
+}
 
 void ZopfliZlibCompress(const ZopfliOptions* options,
                         const unsigned char* in, size_t insize,
