@@ -38,8 +38,10 @@ Author: jyrki.alakuijala@gmail.com (Jyrki Alakuijala)
 #include "match.h"
 #include "LzFind.h"
 
-#ifdef __SSE2__
+#ifdef ZOPFLI_HAVE_SSE2
 #include <immintrin.h>
+#elif defined(__aarch64__) || defined(__arm__) || defined(_M_ARM64) || defined(_M_ARM)
+#include <arm_neon.h>
 #endif
 
 static void CopyStats(const SymbolStats* source, SymbolStats* dest) {
@@ -156,9 +158,11 @@ typedef struct
   U32   nextToUpdate;     /* index from which to continue dictionary update */
 } LZ3HC_Data_Structure;
 
-#ifdef __SSE4_2__
-#include <nmmintrin.h>
-static U32 LZ4HC_hashPtr3(const void* ptr) { return _mm_crc32_u32(0, (*(unsigned*)ptr) & 0xFFFFFF) >> (32-HASH_LOG3); }
+#ifdef ZOPFLI_HAVE_SSE4_2
+static ZOPFLI_INLINE U32 LZ4HC_hashPtr3(const void* ptr) { return _mm_crc32_u32(0, (*(unsigned*)ptr) & 0xFFFFFF) >> (32-HASH_LOG3); }
+#elif defined(__aarch64__) || defined(__arm__) || defined(_M_ARM64) || defined(_M_ARM)
+#include <arm_acle.h>
+static ZOPFLI_INLINE U32 LZ4HC_hashPtr3(const void* ptr) { return __crc32cw(0, (*(unsigned*)ptr) & 0xFFFFFF) >> (32-HASH_LOG3); }
 #else
 #define HASH_FUNCTION3(i)       (((i) * 2654435761U) >> (32-HASH_LOG3))
 
@@ -392,19 +396,29 @@ static void GetBestLengths2(const unsigned char* in, size_t instart, size_t inen
             _mm256_storeu_si256((__m256i*)&length_array[j + curr], vlength);
           }
 #endif
-#if defined(__SSE2__)
+#if defined(ZOPFLI_HAVE_SSE2)
           for (; curr + 4 < len; curr += 4) {
             __m128 x4 = _mm_add_ps(_mm_set1_ps(price2), _mm_loadu_ps(&litlentable[curr]));
             __m128 vcost = _mm_loadu_ps(&costs[j + curr]);
             _mm_storeu_ps(&costs[j + curr], _mm_min_ps(x4, vcost));
             __m128i vlength = _mm_add_epi32(_mm_set1_epi32(curr + dist), _mm_setr_epi32(0, 1, 2, 3));
             __m128i cmp_mask = _mm_castps_si128(_mm_cmplt_ps(x4, vcost));
-#if defined(__SSE4_1__)
+#if defined(ZOPFLI_HAVE_SSE4_1)
             vlength = _mm_blendv_epi8(_mm_loadu_si128((__m128i*)&length_array[j + curr]), vlength, cmp_mask);
 #else
             vlength = _mm_or_si128(_mm_and_si128(vlength, cmp_mask), _mm_andnot_si128(cmp_mask, old_vlength));
 #endif
             _mm_storeu_si128((__m128i*)&length_array[j + curr], vlength);
+          }
+#elif defined(__aarch64__) || defined(__arm__) || defined(_M_ARM64) || defined(_M_ARM)
+          for (; curr + 4 < len; curr += 4) {
+            float32x4_t x4 = vaddq_f32(vdupq_n_f32(price2), vld1q_f32(&litlentable[curr]));
+            float32x4_t vcost = vld1q_f32(&costs[j + curr]);
+            vst1q_f32(&costs[j + curr], vminq_f32(x4, vcost));
+            uint32x4_t vlength = vaddq_u32(vdupq_n_u32(curr + dist), (uint32x4_t){0, 1, 2, 3});
+            uint32x4_t cmp_mask = vcltq_f32(x4, vcost);
+            vlength = vbslq_u32(cmp_mask, vlength, vld1q_u32(&length_array[j + curr]));
+            vst1q_u32(&length_array[j + curr], vlength);
           }
 #endif
 #ifdef __GNUC__

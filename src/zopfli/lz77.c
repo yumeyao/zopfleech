@@ -145,10 +145,14 @@ typedef struct
   U32   nextToUpdate;     /* index from which to continue dictionary update */
 } LZ3HC_Data_Structure;
 
-#ifdef __SSE4_2__
+#ifdef ZOPFLI_HAVE_SSE4_2
 #include <nmmintrin.h>
-static U32 LZ4HC_hashPtr(const void* ptr) { return _mm_crc32_u32(0, *(unsigned*)ptr) >> (32-HASH_LOG); }
-static U32 LZ4HC_hashPtr3(const void* ptr) { return _mm_crc32_u32(0, (*(unsigned*)ptr) & 0xFFFFFF) >> (32-HASH_LOG3); }
+static ZOPFLI_INLINE U32 LZ4HC_hashPtr(const void* ptr) { return _mm_crc32_u32(0, *(unsigned*)ptr) >> (32-HASH_LOG); }
+static ZOPFLI_INLINE U32 LZ4HC_hashPtr3(const void* ptr) { return _mm_crc32_u32(0, (*(unsigned*)ptr) & 0xFFFFFF) >> (32-HASH_LOG3); }
+#elif defined(__aarch64__) || defined(__arm__) || defined(_M_ARM64) || defined(_M_ARM)
+#include <arm_acle.h>
+static ZOPFLI_INLINE U32 LZ4HC_hashPtr(const void* ptr) { return __crc32cw(0, *(unsigned*)ptr) >> (32-HASH_LOG); }
+static ZOPFLI_INLINE U32 LZ4HC_hashPtr3(const void* ptr) { return __crc32cw(0, (*(unsigned*)ptr) & 0xFFFFFF) >> (32-HASH_LOG3); }
 #else
 #define HASH_FUNCTION(i)       (((i) * 2654435761U) >> (32-HASH_LOG))
 #define HASH_FUNCTION3(i)       (((i) * 2654435761U) >> (32-HASH_LOG3))
