@@ -10,10 +10,6 @@
 #include <atomic>
 #include <sys/stat.h>
 
-#ifndef NOMULTI
-#include <thread>
-#endif
-
 #ifdef MP3_SUPPORTED
 #include <id3/tag.h>
 #endif
@@ -71,12 +67,6 @@ static void Usage() {
             " --allfilters      Try all PNG filter modes\n"
             " --allfilters-b    Try all PNG filter modes, including brute force strategies\n"
             " --pal_sort=i      Try i different PNG palette filtering strategies (up to 120)\n"
-#ifndef NOMULTI
-            " --mt-deflate      Use per block multithreading in Deflate\n"
-            " --mt-deflate=i    Use per block multithreading in Deflate with i threads\n"
-            " --mt-file         Use per file multithreading\n"
-            " --mt-file=i       Use per file multithreading with i threads\n"
-#endif
             //" --arithmetic   Use arithmetic encoding for JPEGs, incompatible with most software\n"
 #ifdef __DATE__
             ,__DATE__
@@ -447,25 +437,6 @@ int main(int argc, const char * argv[]) {
                 }
             }
 
-
-#ifndef NOMULTI
-            else if (strncmp(argv[i], "--mt-deflate", 12) == 0) {
-                if (strncmp(argv[i], "--mt-deflate=", 13) == 0){
-                    Options.DeflateMultithreading = atoi(argv[i] + 13);
-                }
-                else if (strcmp(argv[i], "--mt-deflate") == 0) {
-                    Options.DeflateMultithreading = std::thread::hardware_concurrency();
-                }
-            }
-            else if (strncmp(argv[i], "--mt-file", 9) == 0) {
-                if (strncmp(argv[i], "--mt-file=", 10) == 0){
-                    Options.FileMultithreading = atoi(argv[i] + 10);
-                }
-                else if (strcmp(argv[i], "--mt-file") == 0) {
-                    Options.FileMultithreading = std::thread::hardware_concurrency();
-                }
-            }
-#endif
             else if (strcmp(argv[i], "--arithmetic") == 0) {Options.Arithmetic = true;}
             else {printf("Unknown flag: %s\n", argv[i]); return 0;}
         }
@@ -507,27 +478,9 @@ int main(int argc, const char * argv[]) {
                 fileList.push_back(argv[args[j]]);
 #endif
             }
-#ifndef NOMULTI
-            if (Options.FileMultithreading) {
-                std::vector<std::thread> threads;
-                std::atomic<size_t> pos(0);
-                for (unsigned i = 0; i < Options.FileMultithreading; i++) {
-                    threads.emplace_back(multithreadFileLoop, fileList, &pos, Options, &error);
-                }
-                for (auto &thread : threads) {
-                    thread.join();
-                }
-            }
-            else {
-                for (const auto& file : fileList) {
-                    error |= fileHandler(file.c_str(), Options, 0);
-                }
-            }
-#else
             for (const auto& file : fileList) {
                 error |= fileHandler(file.c_str(), Options, 0);
             }
-#endif
         }
 
         if(!files){Usage();}
