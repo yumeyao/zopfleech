@@ -172,10 +172,9 @@ static size_t EncodeTree(const unsigned* ll_lengths,
                          unsigned char* bp,
                          unsigned char* out, size_t* outsize) {
   /* Runlength encoded version of lengths of litlen and dist trees. */
-  unsigned* rle = 0;
-  unsigned* rle_bits = 0;  /* Extra bits for rle values 16, 17 and 18. */
+  struct rleinfo { unsigned rle; unsigned rle_bits; };  /* Extra bits for rle values 16, 17 and 18. */
+  struct rleinfo* rle = 0;
   size_t rle_size = 0;  /* Size of rle array. */
-  size_t rle_bits_size = 0;  /* Should have same value as rle_size. */
   unsigned hlit = 29;  /* 286 - 257 */
   unsigned hdist = 29;  /* 32 - 1, but gzip does not like hdist > 29.*/
   size_t i, j;
@@ -212,8 +211,8 @@ static size_t EncodeTree(const unsigned* ll_lengths,
         while (count >= 11) {
           unsigned count2 = count > 138 ? 138 : count;
           if (!size_only) {
-            ZOPFLI_APPEND_DATA(18, &rle, &rle_size);
-            ZOPFLI_APPEND_DATA(count2 - 11, &rle_bits, &rle_bits_size);
+            struct rleinfo tmp = {18, count2 - 11};
+            ZOPFLI_APPEND_DATA(tmp, &rle, &rle_size);
           }
           clcounts[18]++;
           count -= count2;
@@ -223,8 +222,8 @@ static size_t EncodeTree(const unsigned* ll_lengths,
         while (count >= 3) {
           unsigned count2 = count > 10 ? 10 : count;
           if (!size_only) {
-            ZOPFLI_APPEND_DATA(17, &rle, &rle_size);
-            ZOPFLI_APPEND_DATA(count2 - 3, &rle_bits, &rle_bits_size);
+            struct rleinfo tmp = {17, count2 - 3};
+            ZOPFLI_APPEND_DATA(tmp, &rle, &rle_size);
           }
           clcounts[17]++;
           count -= count2;
@@ -237,25 +236,23 @@ static size_t EncodeTree(const unsigned* ll_lengths,
       count--;  /* Since the first one is hardcoded. */
       clcounts[symbol]++;
       if (!size_only) {
-        ZOPFLI_APPEND_DATA(symbol, &rle, &rle_size);
-        ZOPFLI_APPEND_DATA(0, &rle_bits, &rle_bits_size);
+        struct rleinfo tmp = {symbol, 0};
+        ZOPFLI_APPEND_DATA(tmp, &rle, &rle_size);
       }
       while (count >= 3) {
 				if (fuse_8 && count == 8 || /* record 8 as 4+4 not as 6+single+single */
 						fuse_7 && count == 7) { /* record 7 as 4+3 not as 6+single */
 					if (!size_only) {
-						unsigned rle_tmp[2] = {16, 16};
-						unsigned rle_bits_tmp[2] = {1, count - 7};
-						ZOPFLI_APPEND_ARRAY(rle_tmp, &rle, &rle_size);
-						ZOPFLI_APPEND_ARRAY(rle_bits_tmp, &rle_bits, &rle_bits_size);
+						struct rleinfo tmp[2] = {{16, 1}, {16, count - 7}};
+						ZOPFLI_APPEND_ARRAY(tmp, &rle, &rle_size);
 					}
 					clcounts[16] += 2;
 					count = 0;
 				} else {
 					unsigned count2 = count > 6 ? 6 : count;
 					if (!size_only) {
-						ZOPFLI_APPEND_DATA(16, &rle, &rle_size);
-						ZOPFLI_APPEND_DATA(count2 - 3, &rle_bits, &rle_bits_size);
+						struct rleinfo tmp = {16, count2 - 3};
+						ZOPFLI_APPEND_DATA(tmp, &rle, &rle_size);
 					}
 					clcounts[16]++;
 					count -= count2;
@@ -267,8 +264,8 @@ static size_t EncodeTree(const unsigned* ll_lengths,
     clcounts[symbol] += count;
     if (!size_only) {
       while (count) {
-        ZOPFLI_APPEND_DATA(symbol, &rle, &rle_size);
-        ZOPFLI_APPEND_DATA(0, &rle_bits, &rle_bits_size);
+        struct rleinfo tmp = {symbol, 0};
+        ZOPFLI_APPEND_DATA(tmp, &rle, &rle_size);
         count--;
       }
     }
@@ -293,16 +290,15 @@ static size_t EncodeTree(const unsigned* ll_lengths,
     }
 
     for (i = 0; i < rle_size; i++) {
-      unsigned symbol = clsymbols[rle[i]];
-      AddHuffmanBits(symbol, clcl[rle[i]], bp, out, outsize);
+      unsigned symbol = clsymbols[rle[i].rle];
+      AddHuffmanBits(symbol, clcl[rle[i].rle], bp, out, outsize);
       /* Extra bits. */
-      if (rle[i] == 16) AddBits(rle_bits[i], 2, bp, out, outsize);
-      else if (rle[i] == 17) AddBits(rle_bits[i], 3, bp, out, outsize);
-      else if (rle[i] == 18) AddBits(rle_bits[i], 7, bp, out, outsize);
+      if (rle[i].rle == 16) AddBits(rle[i].rle_bits, 2, bp, out, outsize);
+      else if (rle[i].rle == 17) AddBits(rle[i].rle_bits, 3, bp, out, outsize);
+      else if (rle[i].rle == 18) AddBits(rle[i].rle_bits, 7, bp, out, outsize);
     }
 
     free(rle);
-    free(rle_bits);
   }
 
   size_t result_size = 14;  /* hlit, hdist, hclen bits */
