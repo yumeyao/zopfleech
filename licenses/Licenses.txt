@@ -1,8 +1,7 @@
+Efficient Compression Tool (or ECT) (https://github.com/fhanau/Efficient-Compression-Tool) is under Apache 2.0.
 Brotli(https://github.com/google/brotli), Zopfli and Zopflipng (https://github.com/google/zopfli) are (C) Google Inc. and licensed under the Apache License, see src/zopfli/COPYING.
 FSE(https://github.com/Cyan4973/FiniteStateEntropy) is (C) 2013, Yann Collet 
 LZ4(https://github.com/Cyan4973/lz4) is (C) 2011-2015, Yann Collet 
 fast_zlib(https://github.com/gildor2/fast_zlib) (C) Konstantin Nosov
 
 Zopfli, Zopflipng and Brotli have been modified and are NOT the original versions.
-
-Versions used:
