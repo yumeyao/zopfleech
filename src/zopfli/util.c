@@ -22,7 +22,6 @@ Author: jyrki.alakuijala@gmail.com (Jyrki Alakuijala)
 #include "util.h"
 #include "zopfli.h"
 
-
 typedef struct ZopfliOptionsMin {
   int numiterations;
   unsigned searchext;

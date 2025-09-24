@@ -24,132 +24,23 @@ Author: jyrki.alakuijala@gmail.com (Jyrki Alakuijala)
 #include "zlib_container.h"
 #include <stdio.h>
 
-/*
- Loads stdin into a memory array.
- */
-int LoadPipe(unsigned char** out, size_t* outsize) {
-  const size_t CHUNK = 1 << 20; /* 1 MiB chunks; */
+/* The functions doesn't match what in the header of the same filename on purpose. */
+/* gcc/clang defaults -ffunction-sections to off, so unused functions will be linked together increasing binary size */
 
-  *out = 0;
-  *outsize = -1;
-
-  unsigned char* buf = NULL;
-  size_t cap = 0;
-  size_t size = 0;
-
-  for (;;) {
-    /* ensure capacity for the next read */
-    if (cap - size < CHUNK) {
-      size_t newcap = cap ? (cap * 2) : (CHUNK * 2);
-      unsigned char* p = (unsigned char*)realloc(buf, newcap);
-      if (!p) {
-        free(buf);
-        return 0;
-      }
-      buf = p;
-      cap = newcap;
-    }
-
-    size_t n = fread(buf + size, 1, CHUNK, stdin);
-    if (n > 0) {
-      size += n;
-    }
-    if (n < CHUNK) {
-      /* EOF or error */
-      if (!feof(stdin)) {
-        free(buf);
-        return 0;
-      }
-      break;
-    }
+void ZopfliCompress(const ZopfliOptions* options, ZopfliFormat output_type,
+                    const unsigned char* in, size_t insize,
+                    unsigned char** out, size_t* outsize) {
+  if (output_type == ZOPFLI_FORMAT_GZIP) {
+    ZopfliGzipCompress(options, in, insize, out, outsize);
+  } else if (output_type == ZOPFLI_FORMAT_ZLIB) {
+    ZopfliZlibCompress(options, in, insize, out, outsize);
+  } else if (output_type == ZOPFLI_FORMAT_DEFLATE) {
+    unsigned char bp = 0;
+    ZopfliDeflate(options, 1,
+                  in, insize, &bp, out, outsize);
   }
-
-  *out = buf;
-  *outsize = size;
-  return 1;
 }
 
-/*
- Loads a file into a memory array.
- */
-int LoadFile(const char* filename, unsigned char** out, size_t* outsize) {
-  if (!filename) {
-    return LoadPipe(out, outsize);
-  }
-  FILE* file;
-
-  *out = 0;
-  *outsize = 0;
-  file = fopen(filename, "rb");
-  if (!file) return 0;
-
-  fseek(file , 0 , SEEK_END);
-  *outsize = ftell(file);
-  if(*outsize > 2147483647) {
-    fclose(file);
-    return 0;
-  }
-  rewind(file);
-
-  *out = (unsigned char*)malloc(*outsize);
-  if (!*out && *outsize){
-    fclose(file);
-    return 0;
-  }
-  if (*outsize) {
-    size_t testsize = fread(*out, 1, *outsize, file);
-    if (testsize != *outsize) {
-      /* It could be a directory */
-      free(*out);
-      *out = 0;
-      *outsize = 0;
-      fclose(file);
-      return 0;
-    }
-  }
-
-  fclose(file);
-  return 1;
+void ZopfliGzipCompress(const ZopfliOptions* options, const unsigned char* in, size_t insize, unsigned char** out, size_t* outsize) {
+  return ZopfliGzipCompressEx(options, in, insize, out, outsize, 0, NULL);
 }
-
-/*
-Saves a file from a memory array, overwriting the file if it existed.
-*/
-int SaveFile(const char* filename, const unsigned char* in, size_t insize) {
-  FILE* file = filename ? fopen(filename, "wb") : stdout;
-  if (file == NULL) {
-      return 0;
-  }
-  fwrite((char*)in, 1, insize, file);
-  if (filename) { fclose(file); }
-  return 1;
-}
-
-/*
- outfilename: filename to write output to, or 0 to write to stdout instead
- */
-int ZopfliGzip(const char* infilename, const char* outfilename, unsigned mode, const char* gzip_name, unsigned time) {
-  unsigned char* in = 0;
-  size_t insize = 0;
-  unsigned char* out = 0;
-  size_t outsize = 0;
-
-  if (!LoadFile(infilename, &in, &insize)) {
-    /* fprintf(stderr, "Invalid input: %s\n", infilename); */
-    return -3;
-  }
-
-  ZopfliOptions options;
-  ZopfliInitOptions(&options, mode, 0);
-  ZopfliGzipCompressEx(&options, in, insize, &out, &outsize, time, gzip_name);
-  free(in);
-
-  if (!SaveFile(outfilename, out, outsize)) {
-    /* fprintf(stderr, "Can't write to file %s\n", outfilename); */
-    return -1;
-  }
-
-  free(out);
-  return EXIT_SUCCESS;
-}
-

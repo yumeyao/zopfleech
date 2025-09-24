@@ -18,6 +18,8 @@ set(ZOPFLI_SOURCES
     zlib_container.c
     gzip_container.c
     zopfli_lib.c
+    zopfli_gz.c
+    zopfli_io.c
     LzFind.c
 
     blocksplitter.h
@@ -30,6 +32,7 @@ set(ZOPFLI_SOURCES
     zlib_container.h
     gzip_container.h
     zopfli.h
+    zopfli_lib.h
     LzFind.h
 )
 set(ZOPFLI_PUBLIC_HEADERS
@@ -37,6 +40,7 @@ set(ZOPFLI_PUBLIC_HEADERS
     zlib_container.h
     gzip_container.h
     zopfli.h
+    zopfli_lib.h
 )
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|i.86|x86")

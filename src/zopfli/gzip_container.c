@@ -103,7 +103,3 @@ void ZopfliGzipCompressEx(const ZopfliOptions* options,
                          };
   ZOPFLI_APPEND_ARRAY(ftr, out, outsize);
 }
-
-void ZopfliGzipCompress(const ZopfliOptions* options, const unsigned char* in, size_t insize, unsigned char** out, size_t* outsize) {
-  return ZopfliGzipCompressEx(options, in, insize, out, outsize, 0, NULL);
-}
