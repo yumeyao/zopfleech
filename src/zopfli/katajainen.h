@@ -24,16 +24,12 @@ Author: jyrki.alakuijala@gmail.com (Jyrki Alakuijala)
 
 #include <string.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 /*
 Outputs minimum-redundancy length-limited code bitlengths for symbols with the
 given counts. The bitlengths are limited by maxbits.
 
-The output is tailored for DEFLATE: Symbols that never occur get a bit length
-of 0 and if only a single symbol occurs at least once, its bitlength will be 1
+The output is tailored for DEFLATE: symbols that never occur, get a bit length
+of 0, and if only a single symbol occurs at least once, its bitlength will be 1,
 and not 0 as would theoretically be needed for a single symbol.
 
 frequencies: The amount of occurrences of each symbol.
@@ -43,9 +39,5 @@ bitlengths: Output, the bitlengths for the symbol prefix codes.
 return: 0 for OK, non-0 for error.
 */
 void ZopfliLengthLimitedCodeLengths(const size_t* frequencies, int n, int maxbits, unsigned* bitlengths);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif  /* ZOPFLI_KATAJAINEN_H_ */

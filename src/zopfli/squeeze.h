@@ -35,10 +35,6 @@ solution.
 
 #include "lz77.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 typedef struct SymbolStats {
   /* The literal and length symbols. */
   size_t litlens[288];
@@ -75,9 +71,5 @@ If instart is larger than 0, it uses values before instart as starting
 dictionary.
 */
 void ZopfliLZ77OptimalFixed(const ZopfliOptions* options, const unsigned char* in, size_t instart, size_t inend, ZopfliLZ77Store* store, unsigned mfinexport);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif  /* ZOPFLI_SQUEEZE_H_ */

@@ -319,7 +319,8 @@ static void SkipMatches2(UInt32 *son, UInt32 _cyclicBufferPos)
 #include <arm_acle.h>
 #define HASH(cur) unsigned v = 0xffffff & *(const unsigned*)cur; UInt32 hashValue = __crc32cw(0, v) & LZFIND_HASH_MASK;
 #else
-#define HASH(cur) UInt32 hashValue = ((cur[2] | ((UInt32)cur[0] << 8)) ^ crc[cur[1]]) & LZFIND_HASH_MASK;
+extern const unsigned zopfleech_crc32_table[];
+#define HASH(cur) UInt32 hashValue = ((cur[2] | ((UInt32)cur[0] << 8)) ^ zopfleech_crc32_table[cur[1]]) & LZFIND_HASH_MASK;
 #endif
 
 #define MOVE_POS \

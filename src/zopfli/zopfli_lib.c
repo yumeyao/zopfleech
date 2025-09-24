@@ -141,7 +141,7 @@ int ZopfliGzip(const char* infilename, const char* outfilename, unsigned mode, c
 
   ZopfliOptions options;
   ZopfliInitOptions(&options, mode, 0);
-  ZopfliGzipCompress(&options, in, insize, &out, &outsize, time, gzip_name);
+  ZopfliGzipCompressEx(&options, in, insize, &out, &outsize, time, gzip_name);
   free(in);
 
   if (!SaveFile(outfilename, out, outsize)) {

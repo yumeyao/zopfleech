@@ -23,7 +23,7 @@ Author: jyrki.alakuijala@gmail.com (Jyrki Alakuijala)
 #include <string.h>
 
 /* CRC polynomial: 0xedb88320 */
-static const unsigned long crc32_table[256] = {
+const unsigned zopfleech_crc32_table[256] = {
            0u, 1996959894u, 3993919788u, 2567524794u,  124634137u, 1886057615u,
   3915621685u, 2657392035u,  249268274u, 2044508324u, 3772115230u, 2547177864u,
    162941995u, 2125561021u, 3887607047u, 2428444049u,  498536548u, 1789927666u,
@@ -73,16 +73,16 @@ static const unsigned long crc32_table[256] = {
 static unsigned crc32(unsigned crc, const unsigned char* data, size_t size) {
   unsigned result = crc ^ 0xffffffffu;
   for (; size > 0; size--) {
-    result = crc32_table[(result ^ *(data++)) & 0xff] ^ (result >> 8);
+    result = zopfleech_crc32_table[(result ^ *(data++)) & 0xff] ^ (result >> 8);
   }
   return result ^ 0xffffffffu;
 }
 
 /* Compresses the data according to the gzip specification, RFC 1952. */
-void ZopfliGzipCompress(const ZopfliOptions* options,
-                        const unsigned char* in, size_t insize,
-                        unsigned char** out, size_t* outsize,
-                        unsigned time, const char* name) {
+void ZopfliGzipCompressEx(const ZopfliOptions* options,
+                          const unsigned char* in, size_t insize,
+                          unsigned char** out, size_t* outsize,
+                          unsigned time, const char* name) {
   unsigned crc = crc32(0, in, insize);
   unsigned char bp = 0;
   unsigned char has_name = name && *name; /* The lib just do basic check, path strip done by caller. */
@@ -98,9 +98,12 @@ void ZopfliGzipCompress(const ZopfliOptions* options,
   ZopfliDeflate(options, 1 /* final */,
                 in, insize, &bp, out, outsize);
 
-  /* CRC */
   unsigned char ftr[8] = {crc & 0xff, (crc >> 8) & 0xff, (crc >> 16) & 0xff, (crc >> 24) & 0xff,
                           insize & 0xff, (insize >> 8) & 0xff, (insize >> 16) & 0xff, (insize >> 24) & 0xff
                          };
   ZOPFLI_APPEND_ARRAY(ftr, out, outsize);
+}
+
+void ZopfliGzipCompress(const ZopfliOptions* options, const unsigned char* in, size_t insize, unsigned char** out, size_t* outsize) {
+  return ZopfliGzipCompressEx(options, in, insize, out, outsize, 0, NULL);
 }

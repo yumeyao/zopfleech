@@ -33,6 +33,9 @@ set(ZOPFLI_SOURCES
     LzFind.h
 )
 set(ZOPFLI_PUBLIC_HEADERS
+    deflate.h
+    zlib_container.h
+    gzip_container.h
     zopfli.h
 )
 

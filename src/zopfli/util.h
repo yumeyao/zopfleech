@@ -44,10 +44,6 @@ basic deflate specification values and generic program options.
 #include <intrin.h> /* always required for _BitScan */
 #endif
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #if defined(__GNUC__)
 #define ZOPFLI_INLINE    __attribute__((__always_inline__)) inline
 #define ZOPFLI_NOINLINE  __attribute__((__noinline__)) inline
@@ -158,9 +154,5 @@ do { \
 } while (0)
 #define ZOPFLI_APPEND_ARRAY(/* T[] */ array, /* T** */ data, /* size_t* */ size) \
 ZOPFLI_APPEND_PARRAY(array, sizeof(array) / sizeof((array)[0]), data, size)
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif  /* ZOPFLI_UTIL_H_ */

@@ -34,10 +34,6 @@ ones that enhance it.
 #include "zopfli.h"
 #include "squeeze.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 /*
 Does blocksplitting on uncompressed data.
 The output splitpoints are indices in the uncompressed bytes.
@@ -55,8 +51,5 @@ npoints: pointer to amount of splitpoints, for the dynamic array. The amount of
 void ZopfliBlockSplit(const ZopfliOptions* options, const unsigned char* in, size_t instart,
                       size_t inend, size_t** splitpoints, size_t* npoints, SymbolStats** stats, unsigned char twiceMode, ZopfliLZ77Store twiceStore);
 
-#ifdef __cplusplus
-}
-#endif
 
 #endif  /* ZOPFLI_BLOCKSPLITTER_H_ */

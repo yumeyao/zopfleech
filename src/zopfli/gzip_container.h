@@ -41,8 +41,12 @@ outsize: pointer to the dynamic output array size.
 */
 void ZopfliGzipCompress(const ZopfliOptions* options,
                         const unsigned char* in, size_t insize,
-                        unsigned char** out, size_t* outsize,
-                        unsigned time, const char* name);
+                        unsigned char** out, size_t* outsize);
+
+void ZopfliGzipCompressEx(const ZopfliOptions* options,
+                          const unsigned char* in, size_t insize,
+                          unsigned char** out, size_t* outsize,
+                          unsigned timestamp, const char* name);
 
 #ifdef __cplusplus
 }  // extern "C"
