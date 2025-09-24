@@ -118,7 +118,7 @@ static void ExtractBitLengths(Node* chain, Node* leaves, unsigned* bitlengths) {
   }
 }
 
-#define NODE_LESS(x, y) (((x).weight < (y).weight) || (((x).weight == (y).weight) && ((x).count < (y).count)))
+#define NODE_LESS(x, y) (((x).weight < (y).weight))
 #define NODE_COPY(dst_, src_)  memcpy((dst_), (src_), sizeof(Node))
 #define NODE_SWAP(a_, b_, tmp_) do { NODE_COPY(&(tmp_), (a_)); NODE_COPY((a_), (b_)); NODE_COPY((b_), &(tmp_)); } while (0)
 
@@ -126,7 +126,7 @@ static ZOPFLI_INLINE void insertion_sort(Node *a, size_t n) {
   for (size_t i = 1; i < n; ++i) {
     Node v; NODE_COPY(&v, &a[i]);
     size_t j = i;
-    while (j && (a[j - 1].weight > v.weight)) { NODE_COPY(&a[j], &a[j - 1]); --j; }
+    while (j && NODE_LESS(v, a[j - 1])) { NODE_COPY(&a[j], &a[j - 1]); --j; }
     NODE_COPY(&a[j], &v);
   }
 }
@@ -174,8 +174,10 @@ static void intro_sort_core(Node *a, size_t lo, size_t hi, unsigned depth) {
 
 /* intro sort using quick sort with fallback heap sort (on deep recursion) and insertion sort cutoff */
 static ZOPFLI_INLINE void node_intro_sort(Node *a, size_t n) {
-  if (n <= INTRO_CUTOFF) { insertion_sort(a, n); return; }
+  if (n <= INTRO_CUTOFF) { return insertion_sort(a, n); }
+  for (int i = 0; i < n; i++) a[i].weight = (a[i].weight << 9) | a[i].count;
   intro_sort_core(a, 0, n, 2u * floor_log2_sz(n));
+  for (int i = 0; i < n; i++) a[i].weight = a[i].weight >> 9;
 }
 
 void ZopfliLengthLimitedCodeLengths(const size_t* frequencies, int n, int maxbits, unsigned* bitlengths) {

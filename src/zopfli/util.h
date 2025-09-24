@@ -28,8 +28,20 @@ basic deflate specification values and generic program options.
 #define ZOPFLI_UTIL_H_
 
 #include <stdlib.h>
+
+/* MSVC also defines __AVX2__ and __AVX__, use them directly */
+/* MSVC doesn't offer macro check for SSE3 SSE4.1 SSE4.2, so use AVX as fallback */
+#if !defined(ZOPFLI_HAVE_SSE4_2) && (defined(__SSE4_2__) || defined(__AVX__))
+#define ZOPFLI_HAVE_SSE4_2 1 /* crc */
+#endif
+#if !defined(ZOPFLI_HAVE_SSE4_1) && (defined(__SSE4_1__) || defined(__AVX__))
+#define ZOPFLI_HAVE_SSE4_1 1 /* blend */
+#endif
+#if !defined(ZOPFLI_HAVE_SSE2) && (defined(__SSE2__) || defined(_M_X64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2))
+#define ZOPFLI_HAVE_SSE2 1 /* SIMD baseline on x86 */
+#endif
 #if defined(_MSC_VER) && !defined(__clang__)
-#include <intrin.h>
+#include <intrin.h> /* always required for _BitScan */
 #endif
 
 #ifdef __cplusplus
