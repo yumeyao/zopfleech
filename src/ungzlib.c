@@ -149,7 +149,7 @@ int ungzlib_parse_header(z_stream* strm, char** outpath, time_t* time_out) {
             if (ret != Z_OK) goto fname_fail;
         }
 
-        const Bytef* old_next = strm->next_in;
+        Bytef* old_next = (Bytef*)strm->next_in;
         uInt old_avail = strm->avail_in;
         strm->next_in = (Bytef*)fname;
         strm->avail_in = (uInt)len + 1;

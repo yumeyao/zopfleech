@@ -67,7 +67,7 @@ function(zopfleech_add_library TYPE)
     add_library(${target_name} ${TYPE} ${prefixed_sources})
     add_library(zopfli::${target_name} ALIAS ${target_name})
 
-    target_include_directories(${target_name} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+    target_include_directories(${target_name} PUBLIC ${CMAKE_CURRENT_LIST_DIR})
     if(NOT MSVC)
         target_compile_options(${target_name} PRIVATE -Wall -Wno-sign-compare -Wno-unused)
     endif()

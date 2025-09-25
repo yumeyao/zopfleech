@@ -34,26 +34,28 @@
 #endif
 
 #include "ungzlib.h"
+#include "zopfli_lib.h"
 
 extern int ZopfliGzip(const char* infilename, const char* outfilename, unsigned mode, const char* gzip_name, unsigned time);
 
 /* Globals */
-static unsigned g_level = 9;
-static int g_store_name = 0;
-static int g_store_time = 0; /* mirrors g_store_name */
-static int g_force = 0;
-static int g_quiet = 0;
-static int g_write_stdout = 0;
+static unsigned char g_level = 9;
+static char g_store_name = 0;
+static char g_store_time = 0; /* mirrors g_store_name */
+static char g_force = 0;
+static char g_quiet = 0;
+static char g_write_stdout = 0;
 /* scan backward on decompression if the user specified g_suffix is not present. */
 /* .taz .tgz first (index number is more obvious) for replacement with .tar instead of strip */
 #define known_suffixes_gz known_suffixes[6]
 static const char* known_suffixes[] = {".taz", ".tgz", "-z", "_z", "-gz", ".z", ".gz"};
 static const char* g_suffix = NULL;
 static size_t g_suffix_len = 0;
-static int g_use_stdin = -1;  /* -1: undecided; 0: filenames; 1: stdin */
-static int g_keep_input = 0;
-static int g_recursive = 0;   /* parsed for compatibility; error after parsing */
-static int g_decompress = 0;
+static char g_use_stdin = -1;  /* -1: undecided; 0: filenames; 1: stdin */
+static char g_keep_input = 0;
+static char g_recursive = 0;   /* parsed for compatibility; error after parsing */
+static char g_decompress = 0;
+static int g_verbose = 0;
 
 /* Helpers */
 static void usage(FILE* out) {
@@ -74,6 +76,7 @@ static void usage(FILE* out) {
         "  -k, --keep         keep input files (default is to delete on success)\n"
         "  -f, --force        force overwrite of output file and compress links\n"
         "  -q, --quiet        suppress warnings\n"
+        "  -v, --verbose      verbose mode (more info output)\n"
         "  -h, --help         show this help\n"
     );
 }
@@ -145,6 +148,8 @@ static void parse_args(int argc, char** argv) {
         if (strcmp(a, "--no-name") == 0) { g_store_name = 0; g_store_time = 0; continue; }
         if (strcmp(a, "--name") == 0) { g_store_name = 1; g_store_time = 1; continue; }
         if (strcmp(a, "--recursive") == 0) { g_recursive = 1; continue; }
+        if (strcmp(a, "--rsyncable") == 0) { /* do nothing */ continue; }
+        if (strcmp(a, "--verbose") == 0) { g_verbose++; continue; }
         if (strcmp(a, "--decompress") == 0) { g_decompress = 1; continue; }
         if (strncmp(a, "--suffix", 8) == 0) {
             if (a[8] == '=' && a[9] != '\0') { g_suffix = a + 9; continue; }
@@ -164,7 +169,13 @@ static void parse_args(int argc, char** argv) {
         /* short options / clusters */
         for (int j = 1; a[j] != '\0'; ++j) {
             char c = a[j];
-            if (c >= '1' && c <= '9') { g_level = (unsigned)(c - '0'); continue; }
+            if (c >= '1' && c <= '9') {
+                if (a[j+1] >= '0' && a[j+1] <= '9') {
+                    fprintf(stderr, "zopgz: compression level only 1-9\n");
+                    exit(2);
+                }
+                g_level = (unsigned)(c - '0'); continue;
+            }
             switch (c) {
                 case 'h': usage(stdout); exit(0);
                 case 'f': g_force = 1; break;
@@ -174,6 +185,7 @@ static void parse_args(int argc, char** argv) {
                 case 'r': g_recursive = 1; break;
                 case 'n': g_store_name = 0; g_store_time = 0; break;
                 case 'N': g_store_name = 1; g_store_time = 1; break;
+                case 'v': g_verbose++; break;
                 case 'd': g_decompress = 1; break;
                 case 'S': {
                     const char* val = (a[j+1] ? &a[j+1] : (i+1<argc ? argv[++i] : NULL));
@@ -380,6 +392,70 @@ fail:
     return outpath;
 }
 
+static int zlib_gz(const char* inpath, const char* outpath, unsigned level, const char* fname, unsigned mtime) {
+    unsigned char* in = 0;
+    size_t insize = 0;
+    int ret = 0;
+    FILE* infile = inpath ? fopen(inpath, "rb") : stdin;
+    if (!infile) return -3;
+    FILE* outfile = outpath ? fopen(outpath, "wb") : stdout;
+    if (!outfile) {
+        if (infile != stdin) fclose(infile);
+        return -1;
+    }
+    size_t name_len = (fname && *fname) ? strlen(fname) : 0;
+
+    if (!ZopfliLoadFile(infile, &in, &insize)) {
+        return -3; /* Z_DATA_ERROR - input data error */
+    }
+    if (infile != stdin) fclose(infile);
+    if (insize > 2147483647) { ret = -3; goto fail1; /* don't support for now */ }
+
+    z_stream stream;
+    stream.zalloc = 0;
+    stream.zfree = 0;
+    stream.opaque = 0;
+
+    ret = deflateInit2(&stream, level, Z_DEFLATED, 15 + 16, 8, Z_DEFAULT_STRATEGY);
+    if (ret != Z_OK) goto fail1;
+
+    if (name_len != 0 || mtime != 0) {
+        gz_header header;
+        memset(&header, 0, sizeof(header));
+        header.time = mtime;
+        header.name = name_len ? (unsigned char*)fname : NULL;
+        header.os = 3; /* UNIX filesystem */
+        ret = deflateSetHeader(&stream, &header);
+        if (ret != Z_OK) goto fail1; /* should not happen */
+    }
+
+    size_t buget = deflateBound(&stream, insize) + name_len + 1;
+    unsigned char* out = (unsigned char*)malloc(buget);
+    if (!out) goto fail1;
+
+    stream.next_in = (z_const unsigned char *)in;
+    stream.avail_in = insize;
+    stream.avail_out = buget;
+    stream.next_out = out;
+
+    ret = deflate(&stream, Z_FINISH);
+    deflateEnd(&stream);
+    size_t outsize = stream.total_out;
+    if (ret != Z_STREAM_END) goto fail2;
+    ret = 0;
+
+    if (!ZopfliSaveFile(outfile, out, outsize)) {
+        ret = -1;
+    }
+
+fail2:
+    free(out);
+fail1:
+    free(in);
+    if (outfile != stdout) fclose(outfile);
+    return ret;
+}
+
 /* Compress/decompress one path (NULL => stdin) to file or stdout */
 static int process_one(const char* inpath) {
     int info;
@@ -432,7 +508,12 @@ static int process_one(const char* inpath) {
     if (g_decompress) {
         ret = ungzlib_extract_to(ctx.strm, outpath);
     } else {
-        ret = ZopfliGzip(inpath, outpath, g_level, ctx.gzip_name, mtime);
+        unsigned level = g_level;
+        if (level != 1)
+            ret = ZopfliGzip(inpath, outpath, level, ctx.gzip_name, mtime);
+        else {
+            ret = zlib_gz(inpath, outpath, 9, ctx.gzip_name, mtime);
+        }
     }
     if (ret == 0 /* Z_OK or 0 */ || (g_decompress && Z_STREAM_END)) {
         if (!g_write_stdout && inpath) {
