@@ -1,0 +1,6 @@
+# GZIP compatibility check list
+- support most switches and syntaxes, like `zopgz -9nkf foo.tar` (level `9`, not saving file`n`ame, `k`eep original file, `f`orce overwriting existing `foo.tar.gz` and `f`ollow links)
+- pipe (stdin/stdout), restoring file permissions and timestamps, concatenated multi-streams decompression handling, decompression honoring (or discarding) `FNAME` in the header with taking care of path leak attacks, etc. Almost every usual or unusual feature/behavior you can imagine on `gzip`.
+- `-r` or `--recursive` unimplemented on purpose: behavior odds on complex scenarios (not human-understandable) can't really rely on. Should use `find . -type f -exec zopgz {} +` for a reliable and predictable behavior and file-level parallel processing.
+- `--rsyncable` unimplemented. The benefits of `gzip --rsyncable` are often misunderstood and only apply under **very specific** conditions (not a simple "I use rsync, I benefit from `--rsyncable`" way).
+- `-v`(accepted, no use), `-t`, `-l` not implemented yet.

@@ -22,7 +22,7 @@ The name "**zopfleech**" explains the tributes in the scene:
 
 ### Comparison Chart
 The following tests are run on Ubuntu 24.04 WSL @AMD 9950x, All commands ran **single-threaded**.  
-zopgz produces byte-identical output to ect 0.95, differing only in the filename stored in the gzip header (ect enforces saving it, whereas zopgz uses the same switch `-n` as used in `gzip` to bypass it).
+zopgz produces **byte-identical** output to ect 0.95, differing only in the filename stored in the gzip header (ect enforces saving it, whereas zopgz uses the same switch `-n` as used in `gzip` to bypass it).
 
 | Command       | Compressed Size(Ratio) | Time  | Compressed Size(Ratio) | Time  |
 | ------------- |-------------:| -----:|-------------:| -----:|
@@ -44,7 +44,7 @@ As shown, `zopgz` at its highest setting (`-9`) provides the best compression ra
 ### lib
 
 - **Fully in C** (relaxed ANSI C) for max reusability and portability.
-  - In-memory and FILE* APIs.
+  - In-memory and `FILE*` APIs.
   - Compressing into gzip/zlib/raw deflate streams.
   - No coroutine-style streaming API (feed by chunks).
 - **Compression Levels**: 2-9 (same as upstream ECT project).
@@ -52,12 +52,10 @@ As shown, `zopgz` at its highest setting (`-9`) provides the best compression ra
 - **No Decpomression**: Decompression code is provided as a reusable module within the CLI source for those who need it.
 
 ### CLI
-- `gzip`-compatible, near-complete replacement.
-  - support most switches and syntaxes, like `zopgz -9nkf foo.tar` (level `9`, not saving file`n`ame, `k`eep original file, `f`orce overwriting existing `foo.tar.gz` and `f`ollow links)
-  - pipe (stdin/stdout), restoring file permissions and timestamps, concatenated multi-streams decompression handling, decompression honoring (or discarding) `FNAME` in the header with taking care of path leak attacks, etc. Almost every usual or unusual feature/behavior you can imagine on `gzip`.
-- `-r` or `--recursive` unimplemented on purpose: behavior odds on complex scenarios (not human-understandable) can't really rely on. Should use `find . -type f -exec zopgz {} +` for a reliable and predictable behavior and file-level parallel processing.
-- `--rsyncable` unimplemented. The benefits of `gzip --rsyncable` are often misunderstood and only apply under **very specific** conditions (not a simple "I use rsync, I benefit from --rsyncable" way).
-- `-v`, `-t`, `-l` not implemented yet.
+- `gzip`-compatible, [near-complete](doc/GZIP.md) replacement.
+- default level is `-3` (same as ECT, and already compresses more than `gzip -9`)
+- level `-1` mapping to backend `zlib -9`, same idea as ECT but not same compression/speed.
+- mixed `stdin` (with `-`) with normal files not supported. This often suggests a script error. (`zopgz -9 -${EMPTY_VAR} foo`)
 
 ## Building
 
@@ -82,7 +80,7 @@ In addition, you can add the following arguments to the cmake call:
 - `-DZOPFLEECH_MIN_CPU=AVX2`: (x86/x64 only) Build with AVX2 accelerated code. Possibe values are `AVX2`, `AVX`, `SSE4.2` (the default), `SSE2`, or an empty string "".
 
 #### Lib name explained:
-While this project is named **zopfleech**, it's API and source code layout is close to upstream **zopfli** (an ancient version later modded by ECT a lot), and this project is a perfect **replacement of zopfli**, so the names in APIs and lib still use **zopfli**.
+While this project is named **zopfleech**, its API and source code layout is close to upstream **zopfli** (an old version later heavily modded by ECT), and this project is a perfect **replacement of zopfli**, so the names in APIs and lib still use **zopfli**.
 
 #### Alternative Builds:
 - The CMake build system is modular. Both `src/` and `src/zopfli` can act as the top-level CMake entry to build CLI tool or lib only.

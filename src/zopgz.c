@@ -39,9 +39,9 @@
 extern int ZopfliGzip(const char* infilename, const char* outfilename, unsigned mode, const char* gzip_name, unsigned time);
 
 /* Globals */
-static unsigned char g_level = 9;
-static char g_store_name = 0;
-static char g_store_time = 0; /* mirrors g_store_name */
+static unsigned char g_level = 3;
+static char g_store_name = 1;
+static char g_store_time = 1; /* mirrors g_store_name */
 static char g_force = 0;
 static char g_quiet = 0;
 static char g_write_stdout = 0;
@@ -66,7 +66,7 @@ static void usage(FILE* out) {
         "\n"
         "Mandatory arguments to long options are mandatory for short options too.\n"
         "\n"
-        "  -1 .. -9           compression level, the higher the better but slower\n"
+        "  -1 .. -9           compression level. (default is 3)\n"
         "  --fast, --best     aliases for -1 and -9 (discouraged)\n"
         "  -d, --decompress   decompress (instead of compress)\n"
         "  -n, --no-name      omit/ignore filename (and mtime)\n"
@@ -207,12 +207,17 @@ static void parse_args(int argc, char** argv) {
 
     /* at the end, set g_write_stdout to 1 if use stdin */
     if (g_use_stdin) g_write_stdout = 1;
-    if (g_write_stdout) g_store_name = g_store_time = 0;  /* gzip behavior */
     g_suffix_len = 3; /* unconditionally for .gz first */
     if (g_suffix) g_suffix_len = strlen(g_suffix);
     else if (!g_decompress) g_suffix = known_suffixes_gz; /* .gz */
     if (g_recursive) {
         fprintf(stderr, "zopgz: recursive mode is not supported. consider: find DIR -type f -exec zopgz {} \\;\n");
+        exit(2);
+    }
+    /* Only refuse writing *compressed* data to a terminal. Decompression to a terminal is fine (text/zcat). */
+    if (!g_decompress && g_write_stdout && !g_force && ISATTY(FILENO(stdout))) {
+        fprintf(stderr, "zopgz: won't write compressed data to a terminal. Use -f to force.\n\n");
+        usage(stderr);
         exit(2);
     }
 }
@@ -253,16 +258,39 @@ static time_t mtime_from_stat(FILE_STAT* pstat) {
 #define mtime_from_stat(pstat) ((pstat)->st_mtime)
 #endif
 
-/* 0 for regular files, 1 for symlink, 2 for directory, 3 for 1 + 2 */
+/* 0 for regular files (or stdin backed by file), 1 for symlink, 2 for directory, 3 for 1 + 2, 4 for stdin */
 static int probe_path(const char* path, FILE_STAT* pstat) {
     int ret = 0;
 #if defined(_WIN32)
+    /* FILETIME for 1970-01-01, so that it appears as zero in gzip header. */
+    pstat->ftLastWriteTime.dwLowDateTime  = 0xD53E8000u;
+    pstat->ftLastWriteTime.dwHighDateTime = 0x019DB1DEu;
+    if (path == NULL) {
+        HANDLE h = GetStdHandle(STD_INPUT_HANDLE);
+        DWORD t = GetFileType(h);
+        if (t == FILE_TYPE_DISK) {
+            BY_HANDLE_FILE_INFORMATION info;
+            if (GetFileInformationByHandle(h, &info))
+                pstat->ftLastWriteTime = info.ftLastWriteTime;
+            return 0;
+        }
+        return 4;
+    }
     /* Symlinks/junctions are reparse points; DIRECTORY bit often reflects target kind. */
     if (!GetFileAttributesExA(path, GetFileExInfoStandard, pstat)) return 0;
     DWORD attr = pstat->dwFileAttributes;
     if (attr & FILE_ATTRIBUTE_REPARSE_POINT) ret |= 1;
     if (attr & FILE_ATTRIBUTE_DIRECTORY)     ret |= 2;
 #else
+    pstat->st_mtime = 0;
+    if (path == NULL) {
+        if (fstat(FILENO(stdin), pstat) != 0) { return 4;}
+        if (!S_ISREG(pstat->st_mode)) {
+            pstat->st_mtime = 0; /* don't store timestamp for pipe */
+            return 4;
+        }
+        return 0;
+    }
     if (lstat(path, pstat) != 0) return ret;
     if (S_ISLNK(pstat->st_mode)) {
         ret |= 1;
@@ -461,7 +489,7 @@ static int process_one(const char* inpath) {
     int info;
     FILE_STAT src_st;
     /* Skip symbolic links without -f */
-    if (inpath && (info = probe_path(inpath, &src_st))) {
+    if ((info = probe_path(inpath, &src_st))) {
         if (info & 1 && !g_force) {
             fprintf(stderr, "zopgz: %s is a symbolic link -- skipping\n", inpath);
             return 1;
@@ -494,7 +522,7 @@ static int process_one(const char* inpath) {
             /* decide_outpath() already printed an error and cleaned up on header failure */
         }
     } else {
-        if (inpath && g_store_time) mtime = mtime_from_stat(&src_st);
+        if (g_store_time) mtime = mtime_from_stat(&src_st);
         ctx.gzip_name = (g_store_name && inpath) ? path_basename(inpath) : "";
 
         if (!g_write_stdout) {
@@ -555,18 +583,7 @@ fail:
 }
 
 int main(int argc, char** argv) {
-    /* Pass 1: options + presence of filenames */
     parse_args(argc, argv);
-
-    /* Only refuse writing *compressed* data to a terminal. Decompression to
-       a terminal is fine (text/zcat). */
-    if (!g_decompress && g_write_stdout && !g_force && ISATTY(FILENO(stdout))) {
-        fprintf(stderr,
-            "zopgz: refusing to write compressed data to a terminal\n"
-            "       use -f to force, or redirect the output\n\n");
-        usage(stderr);
-        return 2;
-    }
 
 #if defined(_WIN32)
     if (g_use_stdin) { _setmode(_fileno(stdin),  _O_BINARY); }
@@ -575,8 +592,7 @@ int main(int argc, char** argv) {
 
     /* stdin -> stdout (no filenames or sole "-") */
     if (g_use_stdin) {
-        int rc = process_one(NULL);
-        return rc ? rc : 0;
+        return process_one(NULL);
     }
 
     /* compress file operands (non-recursive) */
